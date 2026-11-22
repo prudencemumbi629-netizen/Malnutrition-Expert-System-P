@@ -10,6 +10,17 @@ The local launcher and Python API can be used before any cloud services are conf
 4. Set `APP_ALLOWED_ORIGINS` to the approved frontend origin or a comma-separated list of origins. Add the frontend URL to the Auth redirect allowlist if the configured sign-in flow requires a redirect.
 5. Set `FYM_INFERENCE_ORIGIN` to the HTTPS origin of the inference Worker and store `FYM_INFERENCE_TOKEN` as an Edge Function secret. Use the same randomly generated token in the inference Worker secret.
 
+### Assign clinical rule validation access
+
+After applying the clinical rule validation migration, a database administrator can enable the action for a designated reviewer who already belongs to the research workspace. Use that reviewer’s Supabase Auth user ID.
+
+```sql
+update public.demo_members
+set can_validate_clinical_rules = true
+where user_id = '<reviewer-auth-user-id>';
+```
+
+The reviewer can then sign in and select **Validate rule** on the clinical decision table. Supabase records the first validation for each rule version, including the reviewer and timestamp. Workspace members can see the status and date. Bump the table’s ruleset version when its criteria, decisions, or sources change so revised rules receive a fresh review.
 ## Deploy Cloudflare
 
 1. Prepare the approved model artifact as described in the Python backend setup. The Docker build context is `Backend/`. Use a Workers Paid account with a Docker-compatible toolchain for Containers.

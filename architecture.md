@@ -8,7 +8,7 @@ Project FYM is a research prototype for screening acute malnutrition in children
 
 | Component | Responsibility |
 | --- | --- |
-| React and Vite in `Frontend/` | Collect screening inputs, optional clinical findings, and medication context. Present model screening, clinical assessment, and pharmacy guidance as distinct results. Keep case inputs in browser memory for the current session. |
+| React and Vite in `Frontend/` | Collect screening inputs, optional clinical findings, and medication context. Present predicted malnutrition risk, clinical priority, nutritional findings, recommendations, and the research disclaimer. Keep case inputs in browser memory for the current session. |
 | Cloudflare Workers Static Assets | Serve the Vite build from `Frontend/dist` over HTTPS. Enable single-page application fallback for client routes. |
 | Supabase Auth | Sign in invited research reviewers and demo users. The browser uses a Supabase publishable key and sends the signed-in user's access token to the API. |
 | Supabase Edge Function | Expose `POST /functions/v1/assess`. Verify the user token and demo access, validate the request, apply rate limits, and call the inference gateway. Return a versioned response with `Cache-Control: no-store`. |
@@ -34,7 +34,7 @@ flowchart LR
 3. Python applies the frozen preprocessing pipeline to the allowed interview-based predictors and returns the predicted class and model scores for Normal, MAM, and SAM. Clinical measurements, haemoglobin, target labels, and split identifiers are excluded from the prediction schema.
 4. The clinical rules evaluate eligible measurements and findings independently. Insufficient evidence produces an assessment-pending result. A model score cannot confirm a clinical classification or override an escalation.
 5. The pharmaceutical rules use the clinical result, comorbidities, and medication context. The approved rule bundle covers oral ferrous sulphate, zinc, amoxicillin, vitamin A, and oral rehydration salts. Results include the triggering rule, rationale, and approved next step. Escalation takes precedence.
-6. The API returns `screening`, `clinicalAssessment`, `pharmacyGuidance`, and `versions`. A transient inference failure returns a retryable error. The UI distinguishes an unavailable result from an assessment pending because of missing information.
+6. The API returns `screening`, `clinicalAssessment`, `researchDisclaimer`, `pharmacyGuidance`, and `versions`. A transient inference failure returns a retryable error. The UI distinguishes an unavailable result from an assessment pending because of missing information.
 
 ## Data and access
 
@@ -56,7 +56,7 @@ Use parity fixtures to compare local and container predictions. Run rule fixture
 3. Build the Python image with only the reviewed runtime files, model, and rules. Deploy the gateway Worker and Container through Wrangler. Cloudflare Containers require a Workers Paid plan. Confirm plan access and benchmark cold starts, memory, and request timeouts in preview before promoting. [Cloudflare Containers](https://developers.cloudflare.com/containers/)
 4. Deploy and verify the compute release before activating it in Supabase. Smoke-test sign-in, rejected unauthorized requests, a case from the cleaned KDHS dataset in the approved environment, a case with missing clinical inputs, and an unavailable-inference response. Keep the previous compatible release deployable and restore its compute version and matching Supabase release metadata together if rollback is needed.
 
-The first implementation includes the React and Vite workspace, a Python screening API and training pipeline, Supabase access and API code, and Cloudflare deployment configuration. Follow the [local backend setup](Backend/README.md) or the [preview deployment guide](deploy/README.md). Clinical and pharmacy outputs stay pending until the rule bundles are reviewed and implemented. Use a hosted Supabase preview for KDHS-derived cases only if covered by the clearance.
+The first implementation includes the React and Vite workspace, a Python screening API and training pipeline, Supabase access and API code, and Cloudflare deployment configuration. Follow the [local backend setup](Backend/README.md) or the [preview deployment guide](deploy/README.md). The clinical rules are available for research testing and require clinical validation. Pharmacy guidance stays pending rule review. Use a hosted Supabase preview for KDHS-derived cases only if covered by the clearance.
 
 ## Platform references
 

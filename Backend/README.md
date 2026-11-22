@@ -23,7 +23,7 @@ Leave the API running on port 8000. In a second terminal at the project root, ru
 | `GET /api/schema` | Screening fields, accepted category codes and model version |
 | `POST /api/assess` | Screening class and scores, assessment and pharmacy status, and version |
 
-Age and sex are required. Other predictors may be omitted. Preprocessing learns the imputation values from the training partition. The clinical and pharmacy endpoints return pending states until approved rules are available. The model scores are research classifier outputs and have not been calibrated as clinical probabilities.
+Age and sex are required. Other predictors may be omitted. Preprocessing learns the imputation values from the training partition. The research model adds the MAM and SAM class probabilities for its combined malnutrition score. The clinical rules use optional `whz`, `muacCm`, `oedema`, and `dangerSigns` independently of the score. The schema lists accepted danger sign codes. An empty list records that none were reported, while omitting the field leaves the observation unrecorded. Pharmacy guidance is pending rule review. The model scores are uncalibrated and the prototype requires clinical validation.
 
 The training report includes a majority-class baseline, a held-out confusion matrix, per-class metrics and a training-set permutation importance ranking. Treat the initial result as a research baseline. The training script accepts `--data` and `--output` for approved alternate locations. The server accepts `FYM_MODEL_ARTIFACT`, `HOST`, and `PORT`.
 

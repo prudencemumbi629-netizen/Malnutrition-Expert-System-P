@@ -41,7 +41,7 @@ function EvaluationSummary({ report }) {
   return (
     <section className="panel evaluation-panel" aria-labelledby="model-training">
       <div className="panel-heading">
-        <h2 id="model-training">Model and training</h2>
+        <h2 id="model-training">{report.comparisons?.length ? 'Current model training details' : 'Model and training'}</h2>
         <p>{training.algorithm} trained on the processed Kenya Demographic and Health Survey (KDHS) cohort.</p>
       </div>
       <div className="form-body evaluation-body">
@@ -69,7 +69,7 @@ function TestResults({ report }) {
   return (
     <section className="panel evaluation-panel" aria-labelledby="model-test-results">
       <div className="panel-heading">
-        <h2 id="model-test-results">Held-out test results</h2>
+        <h2 id="model-test-results">{report.comparisons?.length ? 'Current model three-class results' : 'Held-out test results'}</h2>
         <p>{counts.format(report.test_rows)} records from survey clusters reserved for testing.</p>
       </div>
       <div className="form-body evaluation-body">
@@ -133,18 +133,6 @@ function TestResults({ report }) {
   )
 }
 
-const comparisonMetrics = [
-  ['ROC AUC', result => result.roc_auc.toFixed(4)],
-  ['Average precision', result => percent.format(result.average_precision)],
-  ['Brier score (lower is better)', result => result.brier_score.toFixed(4)],
-  ['Sensitivity', result => percent.format(result.sensitivity)],
-  ['Specificity', result => percent.format(result.specificity)],
-  ['Precision', result => result.precision === null ? '—' : percent.format(result.precision)],
-  ['Moderate cases flagged', result => flaggedCases(result.flagged_by_class.MAM)],
-  ['Severe cases flagged', result => flaggedCases(result.flagged_by_class.SAM)],
-  ['Normal cases flagged', result => flaggedCases(result.flagged_by_class.Normal)],
-]
-
 function flaggedCases({ flagged, total }) {
   return `${counts.format(flagged)} of ${counts.format(total)}`
 }
@@ -154,7 +142,81 @@ const runLabels = {
   retrained: 'Retrained model',
 }
 
-function ModelComparison({ comparisons }) {
+function ModelProfile({ title, version, trees, library, outcome, calibration }) {
+  return (
+    <article className="evaluation-profile">
+      <h3>{title}</h3>
+      <p className="evaluation-model-version">{version}</p>
+      <dl className="evaluation-profile-facts">
+        <div><dt>Trees</dt><dd>{counts.format(trees)}</dd></div>
+        <div><dt>scikit-learn</dt><dd>{library}</dd></div>
+        <div><dt>Training outcome</dt><dd>{outcome}</dd></div>
+        <div><dt>Calibration</dt><dd>{calibration}</dd></div>
+      </dl>
+    </article>
+  )
+}
+
+const formatPercent = value => percent.format(value)
+const formatDecimal = value => value.toFixed(4)
+
+function ComparisonResults({ report, baseline, candidate, testRows }) {
+  const prevalence = (baseline.flagged_by_class.MAM.total + baseline.flagged_by_class.SAM.total) / testRows
+  const classification = report.classification_report
+  const rows = [
+    ['ROC AUC', '≥ 0.80', baseline.roc_auc, candidate.roc_auc, formatDecimal, value => value >= 0.80],
+    ['Average precision', `Above ${formatPercent(prevalence)} prevalence`, baseline.average_precision,
+      candidate.average_precision, formatPercent, value => value > prevalence, 'Above baseline'],
+    ['MAM recall (three-class)', '≥ 75%', classification.MAM.recall, null, formatPercent, value => value >= 0.75],
+    ['SAM recall (three-class)', '≥ 75%', classification.SAM.recall, null, formatPercent, value => value >= 0.75],
+    ['Accuracy (three-class)', '> 86%', report.accuracy, null, formatPercent, value => value > 0.86],
+    ['Brier score (lower is better)', null, baseline.brier_score, candidate.brier_score, formatDecimal],
+    ['Sensitivity (binary)', null, baseline.sensitivity, candidate.sensitivity, formatPercent],
+    ['Specificity (binary)', null, baseline.specificity, candidate.specificity, formatPercent],
+    ['Precision (binary)', null, baseline.precision, candidate.precision, formatPercent],
+    ...['MAM', 'SAM', 'Normal'].map(label => [
+      `${label} cases flagged (binary)`, null, baseline.flagged_by_class[label],
+      candidate.flagged_by_class[label], flaggedCases,
+    ]),
+  ]
+
+  return (
+    <div className="decision-table-scroll" tabIndex={0} role="region" aria-label="Model scores and proposal targets">
+      <table className="decision-table evaluation-table">
+        <caption>Model scores and proposal targets</caption>
+        <thead>
+          <tr>
+            <th scope="col">Metric</th>
+            <th scope="col">Proposal target</th>
+            <th scope="col">Current Random Forest</th>
+            <th scope="col">Calibrated Random Forest</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(([label, target, current, calibrated, format, meetsTarget, metLabel = 'Target met']) => (
+            <tr key={label}>
+              <th scope="row">{label}</th>
+              <td>{target ?? '—'}</td>
+              {[current, calibrated].map((value, index) => (
+                <td key={index}>
+                  {value == null ? (target ? 'Not applicable' : '—') : format(value)}
+                  {value != null && meetsTarget && (
+                    <span className="evaluation-target-status">
+                      {meetsTarget(value) ? metLabel : 'Target missed'}
+                    </span>
+                  )}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+function ModelComparison({ report }) {
+  const { comparisons } = report
   const [selectedIndex, setSelectedIndex] = useState(0)
   const { baseline, candidate, test_rows: testRows, threshold } = comparisons[selectedIndex]
 
@@ -175,29 +237,18 @@ function ModelComparison({ comparisons }) {
             </select>
           </div>
         )}
-        <p>{runLabels[candidate.fit]} · {candidate.model_version} · {candidate.trees} trees · {candidate.calibration} calibration · scikit-learn {candidate.sklearn_version}</p>
+        <div className="evaluation-models">
+          <ModelProfile title="Current Random Forest" version={report.model_version}
+            trees={report.training.trees} library={report.sklearn_version} outcome="Normal, MAM, or SAM"
+            calibration="Uncalibrated" />
+          <ModelProfile title="Calibrated Random Forest" version={candidate.model_version}
+            trees={candidate.trees} library={candidate.sklearn_version} outcome="Normal or acute malnutrition"
+            calibration={candidate.calibration} />
+        </div>
+        <ComparisonResults report={report} baseline={baseline} candidate={candidate} testRows={testRows} />
         <p>Sensitivity, specificity, precision, and flagged counts use a shared {percent.format(threshold)} research threshold. The current model’s binary risk is its MAM probability plus its SAM probability.</p>
-      </div>
-      <div className="decision-table-scroll" tabIndex={0} role="region" aria-label="Binary risk performance by model">
-        <table className="decision-table evaluation-table evaluation-comparison">
-          <caption>Binary risk performance by model</caption>
-          <thead>
-            <tr>
-              <th scope="col">Metric</th>
-              <th scope="col">Current Random Forest</th>
-              <th scope="col">Calibrated Random Forest</th>
-            </tr>
-          </thead>
-          <tbody>
-            {comparisonMetrics.map(([label, value]) => (
-              <tr key={label}>
-                <th scope="row">{label}</th>
-                <td>{value(baseline)}</td>
-                <td>{value(candidate)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <p>The calibrated model produces a binary result, so three-class recall and accuracy do not apply. The accuracy check uses Specific Objective 3’s strict cutoff. Other sections of the proposal use ≥ 86%.</p>
+        <p>Average precision summarizes the precision–recall curve. Its status compares the point estimate with the held-out prevalence. The proposal also calls for statistical evidence of improvement over prevalence, which this report does not assess.</p>
       </div>
     </section>
   )
@@ -238,9 +289,9 @@ export default function ModelEvaluation({ hosted }) {
         <p className="panel form-body">No evaluation report is available for the active model.</p>
       ) : (
         <>
+          {report.comparisons?.length > 0 && <ModelComparison report={report} />}
           <EvaluationSummary report={report} />
           <TestResults report={report} />
-          {report.comparisons?.length > 0 && <ModelComparison comparisons={report.comparisons} />}
           <p className="evaluation-note">Research evaluation on held-out survey data. The prototype requires clinical validation before use in care.</p>
         </>
       )}

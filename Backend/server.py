@@ -11,6 +11,84 @@ from schema import CLASSES, FEATURES, screening_row
 
 MAX_REQUEST_BYTES = 16_384
 DEFAULT_ARTIFACT = Path(__file__).resolve().parent / "artifacts" / "model.joblib"
+DANGER_SIGNS = {
+    "convulsions": "Convulsions now or recently",
+    "unable_to_drink": "Unable to drink or breastfeed",
+    "vomits_everything": "Vomits everything",
+    "lethargic_or_unconscious": "Lethargic or unconscious",
+}
+RESEARCH_DISCLAIMER = (
+    "Research prototype only. Not clinically validated. "
+    "This system does not replace professional assessment."
+)
+
+
+def assess_clinical(age_months, clinical):
+    age_eligible = 6 <= age_months <= 59
+    muac = clinical.get("muacCm")
+    whz = clinical.get("whz")
+    oedema = clinical.get("oedema")
+    danger_signs = clinical.get("dangerSigns")
+    findings = {"muac": "Not recorded.", "whz": "Not recorded.",
+                "oedema": "Not recorded.", "dangerSigns": "Not recorded."}
+    if muac is not None:
+        if not age_eligible:
+            interpretation = "The prototype MUAC thresholds apply at ages 6–59 months."
+        elif muac < 11.5:
+            interpretation = "Severe acute malnutrition range."
+        elif muac < 12.5:
+            interpretation = "Moderate acute malnutrition range for children aged 6–59 months."
+        else:
+            interpretation = "At or above the wasting threshold of 125 mm."
+        findings["muac"] = f"{muac * 10:g} mm. {interpretation}"
+    if whz is not None:
+        if not age_eligible:
+            interpretation = "Use an age-appropriate professional assessment."
+        elif whz < -3:
+            interpretation = "Severe wasting range."
+        elif whz < -2:
+            interpretation = "Moderate wasting range."
+        else:
+            interpretation = "At or above the wasting threshold of −2."
+        findings["whz"] = f"{whz:g}. {interpretation}"
+    if oedema is not None:
+        findings["oedema"] = "Present. Requires professional evaluation." if oedema else "Absent."
+    if danger_signs is not None:
+        findings["dangerSigns"] = (
+            ", ".join(DANGER_SIGNS[sign] for sign in danger_signs) if danger_signs else "None reported."
+        )
+
+    severe_wasting = age_eligible and (
+        (muac is not None and muac < 11.5) or (whz is not None and whz < -3)
+    )
+    moderate_wasting = age_eligible and (
+        (muac is not None and muac < 12.5) or (whz is not None and whz < -2)
+    )
+    if danger_signs:
+        priority = "EMERGENCY_REFERRAL"
+        recommendation = "Seek emergency care immediately for the reported danger signs."
+    elif oedema or severe_wasting:
+        priority = "PROMPT_ASSESSMENT"
+        recommendation = "Arrange prompt assessment at a facility that can evaluate and manage severe acute malnutrition."
+    elif moderate_wasting:
+        priority = "PROMPT_ASSESSMENT"
+        recommendation = "Arrange prompt assessment by a qualified healthcare professional for nutritional evaluation and management."
+    elif age_eligible and all(value is not None for value in (muac, whz, oedema, danger_signs)):
+        priority = "ROUTINE_ASSESSMENT"
+        recommendation = "Continue routine growth monitoring and nutritional assessment with a qualified healthcare professional."
+    else:
+        priority = None
+        recommendation = (
+            "Arrange an age-appropriate professional assessment." if not age_eligible
+            else "Complete the missing clinical observations with a qualified healthcare professional."
+        )
+    return {
+        "status": "assessed" if priority else "assessment_pending",
+        "priority": priority,
+        "findings": findings,
+        "recommendation": recommendation,
+        "ruleVersion": "research-v1",
+    }
 
 
 def optional_object(payload, key, fields):
@@ -25,7 +103,7 @@ def assess(artifact, payload):
     if not isinstance(payload, dict) or payload.keys() - fields:
         raise ValueError("Invalid assessment fields.")
     row = screening_row(payload.get("screeningInputs"))
-    clinical = optional_object(payload, "clinicalInputs", {"whz", "muacCm", "oedema"})
+    clinical = optional_object(payload, "clinicalInputs", {"whz", "muacCm", "oedema", "dangerSigns"})
     for field in ("whz", "muacCm"):
         if field in clinical:
             value = clinical[field]
@@ -35,6 +113,12 @@ def assess(artifact, payload):
         raise ValueError("Arm circumference must be positive.")
     if "oedema" in clinical and type(clinical["oedema"]) is not bool:
         raise ValueError("Specify whether oedema was recorded.")
+    if "dangerSigns" in clinical:
+        signs = clinical["dangerSigns"]
+        if (not isinstance(signs, list) or len(signs) > len(DANGER_SIGNS)
+                or any(not isinstance(sign, str) or sign not in DANGER_SIGNS for sign in signs)
+                or len(set(signs)) != len(signs)):
+            raise ValueError("Provide a list of distinct, recognized danger signs.")
     medications = optional_object(payload, "medicationContext", {"medications"})
     entries = medications.get("medications", [])
     if not isinstance(entries, list) or len(entries) > 20 or any(
@@ -46,20 +130,16 @@ def assess(artifact, payload):
     probabilities = dict(zip(model.classes_, model.predict_proba([row])[0]))
     scores = {name: float(probabilities[name]) for name in CLASSES}
     return {
-        "screening": {"predictedClass": str(max(probabilities, key=probabilities.get)), "scores": scores},
-        "clinicalAssessment": {
-            "status": "pending_rule_review" if clinical else "assessment_pending",
-            "priority": None,
-            "recommendation": None,
-            "ruleVersion": None,
-            "message": (
-                "Clinical rules are awaiting review." if clinical
-                else "No clinical findings were supplied."
-            ),
+        "screening": {
+            "predictedClass": str(max(probabilities, key=probabilities.get)),
+            "scores": scores,
+            "malnutritionProbability": scores["MAM"] + scores["SAM"],
         },
+        "clinicalAssessment": assess_clinical(payload["screeningInputs"]["b19"], clinical),
+        "researchDisclaimer": RESEARCH_DISCLAIMER,
         "pharmacyGuidance": {
-            "status": "pending_rule_review",
-            "message": "Pharmacy guidance is pending review of the clinical rules.",
+            "status": "unavailable",
+            "message": "Pharmacy guidance is unavailable in this research prototype.",
             "alerts": [],
         },
         "versions": {"model": artifact["version"]},
@@ -92,7 +172,11 @@ class AssessmentHandler(BaseHTTPRequestHandler):
         if self.path == "/api/schema":
             if not self.authorized():
                 return self.send_json(401, {"error": "Unauthorized."})
-            return self.send_json(200, {"features": FEATURES, "modelVersion": artifact["version"]})
+            return self.send_json(200, {
+                "features": FEATURES,
+                "modelVersion": artifact["version"],
+                "dangerSigns": [{"key": key, "label": label} for key, label in DANGER_SIGNS.items()],
+            })
         return self.send_json(404, {"error": "Route not found."})
 
     def do_POST(self):

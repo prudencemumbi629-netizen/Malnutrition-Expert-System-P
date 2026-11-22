@@ -4,7 +4,6 @@ import ClinicalRuleTable from './ClinicalRuleTable.jsx'
 import { hostedMode, publishableKey, supabaseUrl } from './supabase.js'
 import './App.css'
 
-const clinicalMeasurements = ['whz', 'muacCm']
 const whzOptions = Array.from({ length: 121 }, (_, index) => ((index - 60) / 10).toFixed(1))
 
 const classes = [
@@ -51,30 +50,31 @@ function Predictor({ feature, value, onChange, disabled }) {
   )
 }
 
-function OutputSection({ title, data, children }) {
+function OutputSection({ title, children }) {
   return (
     <section className="output-section">
       <div className="output-section-heading">
         <h3>{title}</h3>
       </div>
       {children}
-      {data?.message && <p>{data.message}</p>}
     </section>
   )
 }
 
-function AssessmentResults({ result, findings, busy }) {
+function AssessmentResults({ result, busy }) {
   const screening = result?.screening
   const assessment = result?.clinicalAssessment
   const { MAM, SAM } = screening?.scores ?? {}
-  const malnutritionScore = Number.isFinite(MAM) && Number.isFinite(SAM) ? MAM + SAM : null
+  const malnutritionScore = screening?.malnutritionProbability ??
+    (Number.isFinite(MAM) && Number.isFinite(SAM) ? MAM + SAM : null)
+  const findings = assessment?.findings
+  const clinicalRulesAvailable = Boolean(assessment?.ruleVersion)
 
   return (
     <aside className="panel results" aria-labelledby="results-title" aria-busy={busy}>
       <div className="panel-heading">
         <p className="kicker">Assessment output</p>
         <h2 id="results-title">Case results</h2>
-        <p>Model screening, clinical assessment, and pharmacy guidance are shown separately.</p>
       </div>
       <div aria-live="polite">
         {!result ? (
@@ -85,11 +85,9 @@ function AssessmentResults({ result, findings, busy }) {
           </div>
         ) : (
           <>
-            <OutputSection title="Model screening">
-              <p className="prediction">{classes.find(([key]) => key === screening?.predictedClass)?.[1] || 'Screening result unavailable'}</p>
-              {malnutritionScore !== null && (
-                <p>Acute malnutrition model score (MAM + SAM) <strong>{(malnutritionScore * 100).toFixed(1)}%</strong></p>
-              )}
+            <OutputSection title="Predicted malnutrition risk">
+              <p className="prediction">{malnutritionScore === null ? 'Screening result unavailable' : `${(malnutritionScore * 100).toFixed(2)}%`}</p>
+              <p>Random Forest score for moderate or severe acute malnutrition. Research model scores are uncalibrated.</p>
               {screening?.scores && (
                 <ul className="score-list" aria-label="Model scores">
                   {classes.map(([key, label]) => {
@@ -103,43 +101,32 @@ function AssessmentResults({ result, findings, busy }) {
                   })}
                 </ul>
               )}
-              <p>Research model scores are uncalibrated.</p>
               {result.versions?.model && <p className="version">Model {result.versions.model}</p>}
             </OutputSection>
-            <OutputSection title="Clinical assessment" data={assessment}>
-              {assessment?.status && <span className="status-label">{formatStatus(assessment.status)}</span>}
-              <p><strong>Assessment priority</strong> · {assessment?.priority || (assessment?.status === 'assessment_pending'
-                ? 'Assessment pending' : 'Pending clinical rule review')}</p>
-              <h4>Recorded clinical findings</h4>
+            <OutputSection title="Clinical assessment priority">
+              <p className="status-label">{assessment?.priority ||
+                (clinicalRulesAvailable ? 'Assessment incomplete' : 'Clinical assessment unavailable')}</p>
+            </OutputSection>
+            <OutputSection title="Nutritional findings">
               <ul className="clinical-findings">
-                <li>Weight-for-height z-score · {findings?.whz ?? 'Not recorded'}</li>
-                <li>Mid-upper arm circumference · {findings?.muacCm == null ? 'Not recorded' : `${findings.muacCm} cm`}</li>
-                <li>Nutritional oedema · {findings?.oedema == null ? 'Not recorded' : findings.oedema ? 'Recorded present' : 'Recorded absent'}</li>
+                <li>MUAC · {findings?.muac ?? 'Interpretation unavailable.'}</li>
+                <li>WHZ · {findings?.whz ?? 'Interpretation unavailable.'}</li>
+                <li>Bilateral pitting oedema · {findings?.oedema ?? 'Interpretation unavailable.'}</li>
+                <li>Emergency danger signs · {findings?.dangerSigns ?? 'Interpretation unavailable.'}</li>
               </ul>
-              <p><strong>Recommendations</strong> · {assessment?.recommendation || 'Pending clinical rule review'}</p>
               {assessment?.ruleVersion && <p className="version">Clinical rules {assessment.ruleVersion}</p>}
             </OutputSection>
-            <OutputSection title="Pharmacy guidance" data={result.pharmacyGuidance}>
-              {result.pharmacyGuidance?.status && <span className="status-label">{formatStatus(result.pharmacyGuidance.status)}</span>}
-              {Array.isArray(result.pharmacyGuidance?.alerts) && result.pharmacyGuidance.alerts.length > 0 && (
-                <ul className="alerts">
-                  {result.pharmacyGuidance.alerts.map((alert, index) => (
-                    <li key={alert?.id || index}>
-                      {typeof alert === 'string' ? alert : [alert?.message, alert?.rationale, alert?.nextStep].filter(value => typeof value === 'string').join(' ')}
-                    </li>
-                  ))}
-                </ul>
-              )}
+            <OutputSection title="Recommendations">
+              <p>{assessment?.recommendation || 'Clinical recommendation unavailable.'}</p>
+            </OutputSection>
+            <OutputSection title="Research disclaimer">
+              <p>{result.researchDisclaimer || 'Research prototype only. Not clinically validated. This system does not replace professional assessment.'}</p>
             </OutputSection>
           </>
         )}
       </div>
     </aside>
   )
-}
-
-function formatStatus(status) {
-  return typeof status === 'string' ? status.replace(/[_-]/g, ' ') : ''
 }
 
 function WorkspaceOverview({ hosted, checking, checkedAt, schema, schemaError, result, busy, onWake }) {
@@ -187,7 +174,6 @@ function ScreeningWorkspace({ accessToken, signOut, signOutError }) {
   const [clinical, setClinical] = useState({})
   const [medications, setMedications] = useState('')
   const [result, setResult] = useState(null)
-  const [submittedFindings, setSubmittedFindings] = useState(null)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const loadSchema = useEffectEvent(signal => api('schema', { signal }, accessToken))
@@ -237,7 +223,6 @@ function ScreeningWorkspace({ accessToken, signOut, signOutError }) {
     setClinical({})
     setMedications('')
     setResult(null)
-    setSubmittedFindings(null)
     setError('')
   }
 
@@ -248,11 +233,13 @@ function ScreeningWorkspace({ accessToken, signOut, signOutError }) {
       schema.features.filter(({ key }) => inputs[key] !== undefined && inputs[key] !== '')
         .map(({ key }) => [key, Number(inputs[key])]),
     )
-    const clinicalInputs = Object.fromEntries(
-      clinicalMeasurements.filter(key => clinical[key] !== undefined && clinical[key] !== '')
-        .map(key => [key, Number(clinical[key])]),
-    )
+    const clinicalInputs = {}
+    if (clinical.whz) clinicalInputs.whz = Number(clinical.whz)
+    if (clinical.muacMm) clinicalInputs.muacCm = Number(clinical.muacMm) / 10
     if (clinical.oedema) clinicalInputs.oedema = clinical.oedema === 'yes'
+    if (clinical.dangerSigns?.length || clinical.noDangerSigns) {
+      clinicalInputs.dangerSigns = clinical.dangerSigns ?? []
+    }
     const medicationList = medications.split(',').map(name => name.trim()).filter(Boolean)
     const payload = { screeningInputs }
     if (Object.keys(clinicalInputs).length) payload.clinicalInputs = clinicalInputs
@@ -261,7 +248,6 @@ function ScreeningWorkspace({ accessToken, signOut, signOutError }) {
     setBusy(true)
     setError('')
     setResult(null)
-    setSubmittedFindings(clinicalInputs)
     try {
       setResult(await api('assess', {
         method: 'POST',
@@ -342,12 +328,12 @@ function ScreeningWorkspace({ accessToken, signOut, signOutError }) {
                         </div>
                       )}
                       <div className="field">
-                        <label htmlFor="muacCm">Mid-upper arm circumference (cm)</label>
-                        <input id="muacCm" type="number" step="any" disabled={busy} value={clinical.muacCm ?? ''}
-                          onChange={event => setClinical(current => ({ ...current, muacCm: event.target.value }))} />
+                        <label htmlFor="muacMm">Mid-upper arm circumference (mm)</label>
+                        <input id="muacMm" type="number" step="any" min="0.01" disabled={busy} value={clinical.muacMm ?? ''}
+                          onChange={event => setClinical(current => ({ ...current, muacMm: event.target.value }))} />
                       </div>
                       <div className="field">
-                        <label htmlFor="oedema">Nutritional oedema recorded</label>
+                        <label htmlFor="oedema">Bilateral pitting oedema</label>
                         <select id="oedema" disabled={busy} value={clinical.oedema ?? ''} onChange={event => setClinical(current => ({ ...current, oedema: event.target.value }))}>
                           <option value="">Not recorded</option>
                           <option value="yes">Yes</option>
@@ -356,6 +342,34 @@ function ScreeningWorkspace({ accessToken, signOut, signOutError }) {
                       </div>
                     </div>
                   </details>
+                  {schema.dangerSigns?.length > 0 && (
+                    <fieldset className="context danger-signs" disabled={busy}>
+                      <legend>Emergency danger signs</legend>
+                      <div className="field context-fields">
+                        {schema.dangerSigns.map(({ key, label }) => (
+                          <label key={key}>
+                            <input type="checkbox" checked={clinical.dangerSigns?.includes(key) ?? false} onChange={event => {
+                              const checked = event.target.checked
+                              setClinical(current => {
+                                const signs = current.dangerSigns ?? []
+                                return {
+                                  ...current,
+                                  noDangerSigns: false,
+                                  dangerSigns: checked ? [...signs, key] : signs.filter(sign => sign !== key),
+                                }
+                              })
+                            }} /> {label}
+                          </label>
+                        ))}
+                        <label>
+                          <input type="checkbox" checked={clinical.noDangerSigns ?? false} onChange={event => {
+                            const checked = event.target.checked
+                            setClinical(current => ({ ...current, noDangerSigns: checked, dangerSigns: [] }))
+                          }} /> None reported
+                        </label>
+                      </div>
+                    </fieldset>
+                  )}
                   <details className="context">
                     <summary>Medication context <span>Optional</span></summary>
                     <div className="field context-fields">
@@ -373,7 +387,7 @@ function ScreeningWorkspace({ accessToken, signOut, signOutError }) {
               </form>
             )}
           </section>
-          <AssessmentResults result={result} findings={submittedFindings} busy={busy} />
+          <AssessmentResults result={result} busy={busy} />
         </div>
         </>}
         <footer>Project FYM · Research prototype · Clinical decisions require qualified review.</footer>

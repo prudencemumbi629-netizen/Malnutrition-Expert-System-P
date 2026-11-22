@@ -9,6 +9,19 @@
 .skip-link { position: fixed; left: 12px; top: 10px; z-index: 2; padding: 9px; transform: translateY(-150%); background: #fff; color: var(--ink); }
 .skip-link:focus { transform: translateY(0); }
 .workspace { max-width: 1260px; margin: auto; padding: 40px 34px 22px; }
+.workspace-shell { max-width: 1480px; margin: auto; display: grid; grid-template-columns: 205px minmax(0, 1fr); }
+.workspace-shell > .workspace { width: 100%; min-width: 0; }
+.workspace-nav { align-self: start; display: grid; gap: 6px; padding: 40px 0 20px 24px; }
+.workspace-nav a { display: block; border-radius: 8px; padding: 10px 12px; color: var(--ink); font-size: 14px; font-weight: 670; text-decoration: none; }
+.workspace-nav a:hover { background: #e9f0ea; }
+.workspace-nav a[aria-current="page"] { color: #174b39; background: #ddecdf; }
+.decision-table-scroll { overflow-x: auto; }
+.decision-table { width: 100%; border-collapse: collapse; min-width: 660px; text-align: left; font-size: 14px; line-height: 1.5; }
+.decision-table th, .decision-table td { vertical-align: top; padding: 14px 18px; }
+.decision-table thead { background: #f2f6f2; }
+.decision-table tbody tr { border-top: 1px solid var(--border); }
+.decision-table tbody td { color: var(--muted); }
+.decision-table a { color: var(--accent); }
 .intro { margin-bottom: 30px; }
 .kicker { color: var(--accent); text-transform: uppercase; font-size: 11px; font-weight: 750; letter-spacing: .12em; }
 .intro h1 { font-size: clamp(29px, 4.5vw, 48px); letter-spacing: -.045em; line-height: 1.14; margin: 7px 0 9px; }
@@ -58,6 +71,8 @@
 .output-section-heading { display: flex; align-items: center; gap: 8px; margin-bottom: 9px; }
 .output-section-heading h3 { font-size: 16px; }
 .output-section .prediction { font-size: 17px; font-weight: 730; color: var(--ink); }
+.output-section h4 { margin: 12px 0 4px; font-size: 14px; }
+.clinical-findings { margin: 0 0 10px; padding-left: 18px; color: var(--muted); font-size: 14px; line-height: 1.5; }
 .score-list { list-style: none; margin: 12px 0; padding: 0; display: grid; gap: 7px; }
 .score-list li > div { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; font-size: 13px; }
 .score-list meter { width: 100%; height: 10px; accent-color: var(--accent); }
@@ -65,11 +80,15 @@
 .error { padding: 10px 12px; margin: 12px 0; background: #fceee9; border: 1px solid #f0ccc1; color: #842f21; border-radius: 7px; line-height: 1.45; }
 footer { margin-top: 24px; color: var(--muted); font-size: 12px; }
 @media (max-width: 770px) {
+  .workspace-shell { grid-template-columns: 1fr; }
+  .workspace-nav { display: flex; flex-wrap: wrap; padding: 16px 34px 0; }
+  .workspace-shell > .workspace { padding-top: 20px; }
   .overview { grid-template-columns: 1fr 1fr; }
   .overview-card:first-child { grid-column: 1 / -1; }
   .workspace-grid { grid-template-columns: 1fr; }
 }
 @media (max-width: 440px) {
+  .workspace-nav { padding-inline: 16px; }
   .site-header-inner, .workspace { padding-inline: 16px; }
   .workspace { padding-top: 28px; }
   .panel-heading, .form-body, .form-actions, .output-section { padding-inline: 16px; }

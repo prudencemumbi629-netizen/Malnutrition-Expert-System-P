@@ -1,12 +1,11 @@
 import { useEffect, useEffectEvent, useState } from 'react'
 import Access from './Access.jsx'
+import ClinicalRuleTable from './ClinicalRuleTable.jsx'
 import { hostedMode, publishableKey, supabaseUrl } from './supabase.js'
 import './App.css'
 
-const clinicalFields = [
-  { key: 'whz', label: 'Weight-for-height z-score', step: 'any' },
-  { key: 'muacCm', label: 'Mid-upper arm circumference (cm)', step: 'any' },
-]
+const clinicalMeasurements = ['whz', 'muacCm']
+const whzOptions = Array.from({ length: 121 }, (_, index) => ((index - 60) / 10).toFixed(1))
 
 const classes = [
   ['Normal', 'Normal'],
@@ -64,8 +63,11 @@ function OutputSection({ title, data, children }) {
   )
 }
 
-function AssessmentResults({ result, busy }) {
+function AssessmentResults({ result, findings, busy }) {
   const screening = result?.screening
+  const assessment = result?.clinicalAssessment
+  const { MAM, SAM } = screening?.scores ?? {}
+  const malnutritionScore = Number.isFinite(MAM) && Number.isFinite(SAM) ? MAM + SAM : null
 
   return (
     <aside className="panel results" aria-labelledby="results-title" aria-busy={busy}>
@@ -85,6 +87,9 @@ function AssessmentResults({ result, busy }) {
           <>
             <OutputSection title="Model screening">
               <p className="prediction">{classes.find(([key]) => key === screening?.predictedClass)?.[1] || 'Screening result unavailable'}</p>
+              {malnutritionScore !== null && (
+                <p>Acute malnutrition model score (MAM + SAM) <strong>{(malnutritionScore * 100).toFixed(1)}%</strong></p>
+              )}
               {screening?.scores && (
                 <ul className="score-list" aria-label="Model scores">
                   {classes.map(([key, label]) => {
@@ -101,8 +106,18 @@ function AssessmentResults({ result, busy }) {
               <p>Research model scores are uncalibrated.</p>
               {result.versions?.model && <p className="version">Model {result.versions.model}</p>}
             </OutputSection>
-            <OutputSection title="Clinical assessment" data={result.clinicalAssessment}>
-              {result.clinicalAssessment?.status && <span className="status-label">{formatStatus(result.clinicalAssessment.status)}</span>}
+            <OutputSection title="Clinical assessment" data={assessment}>
+              {assessment?.status && <span className="status-label">{formatStatus(assessment.status)}</span>}
+              <p><strong>Assessment priority</strong> · {assessment?.priority || (assessment?.status === 'assessment_pending'
+                ? 'Assessment pending' : 'Pending clinical rule review')}</p>
+              <h4>Recorded clinical findings</h4>
+              <ul className="clinical-findings">
+                <li>Weight-for-height z-score · {findings?.whz ?? 'Not recorded'}</li>
+                <li>Mid-upper arm circumference · {findings?.muacCm == null ? 'Not recorded' : `${findings.muacCm} cm`}</li>
+                <li>Nutritional oedema · {findings?.oedema == null ? 'Not recorded' : findings.oedema ? 'Recorded present' : 'Recorded absent'}</li>
+              </ul>
+              <p><strong>Recommendations</strong> · {assessment?.recommendation || 'Pending clinical rule review'}</p>
+              {assessment?.ruleVersion && <p className="version">Clinical rules {assessment.ruleVersion}</p>}
             </OutputSection>
             <OutputSection title="Pharmacy guidance" data={result.pharmacyGuidance}>
               {result.pharmacyGuidance?.status && <span className="status-label">{formatStatus(result.pharmacyGuidance.status)}</span>}
@@ -162,6 +177,7 @@ function WorkspaceOverview({ hosted, checking, checkedAt, schema, schemaError, r
 
 function ScreeningWorkspace({ accessToken, signOut, signOutError }) {
   const hosted = Boolean(accessToken)
+  const [clinicalPage, setClinicalPage] = useState(() => window.location.hash === '#clinical-rules')
   const [schema, setSchema] = useState(null)
   const [schemaError, setSchemaError] = useState('')
   const [schemaAttempt, setSchemaAttempt] = useState(hosted ? 0 : 1)
@@ -171,9 +187,19 @@ function ScreeningWorkspace({ accessToken, signOut, signOutError }) {
   const [clinical, setClinical] = useState({})
   const [medications, setMedications] = useState('')
   const [result, setResult] = useState(null)
+  const [submittedFindings, setSubmittedFindings] = useState(null)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const loadSchema = useEffectEvent(signal => api('schema', { signal }, accessToken))
+
+  useEffect(() => {
+    function onNavigation() {
+      if (window.location.hash === '#main-content') return
+      setClinicalPage(window.location.hash === '#clinical-rules')
+    }
+    window.addEventListener('hashchange', onNavigation)
+    return () => window.removeEventListener('hashchange', onNavigation)
+  }, [])
 
   useEffect(() => {
     if (!schemaAttempt) return
@@ -211,6 +237,7 @@ function ScreeningWorkspace({ accessToken, signOut, signOutError }) {
     setClinical({})
     setMedications('')
     setResult(null)
+    setSubmittedFindings(null)
     setError('')
   }
 
@@ -222,8 +249,8 @@ function ScreeningWorkspace({ accessToken, signOut, signOutError }) {
         .map(({ key }) => [key, Number(inputs[key])]),
     )
     const clinicalInputs = Object.fromEntries(
-      clinicalFields.filter(({ key }) => clinical[key] !== undefined && clinical[key] !== '')
-        .map(({ key }) => [key, Number(clinical[key])]),
+      clinicalMeasurements.filter(key => clinical[key] !== undefined && clinical[key] !== '')
+        .map(key => [key, Number(clinical[key])]),
     )
     if (clinical.oedema) clinicalInputs.oedema = clinical.oedema === 'yes'
     const medicationList = medications.split(',').map(name => name.trim()).filter(Boolean)
@@ -234,6 +261,7 @@ function ScreeningWorkspace({ accessToken, signOut, signOutError }) {
     setBusy(true)
     setError('')
     setResult(null)
+    setSubmittedFindings(clinicalInputs)
     try {
       setResult(await api('assess', {
         method: 'POST',
@@ -258,9 +286,15 @@ function ScreeningWorkspace({ accessToken, signOut, signOutError }) {
           </div>
         </div>
       </header>
-      <main className="workspace" id="main-content">
+      <div className="workspace-shell">
+        <nav className="workspace-nav" aria-label="Workspace">
+          <a href="#screening" aria-current={!clinicalPage ? 'page' : undefined}>Screening</a>
+          <a href="#clinical-rules" aria-current={clinicalPage ? 'page' : undefined}>Clinical decision table</a>
+        </nav>
+      <main className="workspace" id="main-content" tabIndex={-1}>
         {signOutError && <p className="error" role="alert">{signOutError}</p>}
-        <div className="intro">
+        {clinicalPage ? <ClinicalRuleTable /> : <>
+        <div className="intro" id="screening">
           <p className="kicker">Kenya · Under five</p>
           <h1>Acute malnutrition screening</h1>
           <p>Review model screening and available clinical context for a research case.</p>
@@ -289,12 +323,29 @@ function ScreeningWorkspace({ accessToken, signOut, signOutError }) {
                   <details className="context">
                     <summary>Clinical findings <span>Optional</span></summary>
                     <div className="fields context-fields">
-                      {clinicalFields.map(({ key, label, step }) => (
-                        <div className="field" key={key}>
-                          <label htmlFor={key}>{label}</label>
-                          <input type="number" step={step} id={key} disabled={busy} value={clinical[key] ?? ''} onChange={event => setClinical(current => ({ ...current, [key]: event.target.value }))} />
+                      <div className="field">
+                        <label htmlFor="whz-choice">Weight-for-height z-score</label>
+                        <select id="whz-choice" disabled={busy} value={clinical.whzChoice ?? ''} onChange={event => {
+                          const choice = event.target.value
+                          setClinical(current => ({ ...current, whzChoice: choice, whz: choice === 'exact' ? '' : choice }))
+                        }}>
+                          <option value="">Not recorded</option>
+                          <option value="exact">Enter exact score</option>
+                          {whzOptions.map(score => <option key={score} value={score}>{score}</option>)}
+                        </select>
+                      </div>
+                      {clinical.whzChoice === 'exact' && (
+                        <div className="field">
+                          <label htmlFor="whz-exact">Exact weight-for-height z-score</label>
+                          <input id="whz-exact" type="number" step="any" required disabled={busy} value={clinical.whz}
+                            onChange={event => setClinical(current => ({ ...current, whz: event.target.value }))} />
                         </div>
-                      ))}
+                      )}
+                      <div className="field">
+                        <label htmlFor="muacCm">Mid-upper arm circumference (cm)</label>
+                        <input id="muacCm" type="number" step="any" disabled={busy} value={clinical.muacCm ?? ''}
+                          onChange={event => setClinical(current => ({ ...current, muacCm: event.target.value }))} />
+                      </div>
                       <div className="field">
                         <label htmlFor="oedema">Nutritional oedema recorded</label>
                         <select id="oedema" disabled={busy} value={clinical.oedema ?? ''} onChange={event => setClinical(current => ({ ...current, oedema: event.target.value }))}>
@@ -322,10 +373,12 @@ function ScreeningWorkspace({ accessToken, signOut, signOutError }) {
               </form>
             )}
           </section>
-          <AssessmentResults result={result} busy={busy} />
+          <AssessmentResults result={result} findings={submittedFindings} busy={busy} />
         </div>
+        </>}
         <footer>Project FYM · Research prototype · Clinical decisions require qualified review.</footer>
       </main>
+      </div>
     </>
   )
 }

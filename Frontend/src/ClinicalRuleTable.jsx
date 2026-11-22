@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { supabase } from './supabase.js'
 
 // Bump this version when the criteria, decisions, or sources change.
-const rulesetVersion = 'draft-v1'
+const rulesetVersion = 'research-v1'
 const validationFields = 'rule_id, validated_at'
 
 const sources = {
@@ -18,31 +18,38 @@ const sources = {
 
 const rules = [
   {
+    id: 'emergency-danger-signs',
+    pathway: 'Emergency danger signs',
+    criteria: 'Any reported danger sign, including current or recent convulsions.',
+    decision: 'Emergency referral regardless of model score or nutritional findings.',
+    source: sources.who,
+  },
+  {
     id: 'infants-under-six-months',
     pathway: 'Infants under 6 months',
     criteria: 'Risk of poor growth or development. Review growth history, feeding, oedema, and clinical signs.',
-    decision: 'Define infant-specific assessment and referral criteria.',
+    decision: 'Recommend age-appropriate professional assessment when no urgent finding is reported.',
     source: sources.implementation,
   },
   {
     id: 'wasting-or-oedema',
     pathway: 'Wasting or nutritional oedema, 6–59 months',
-    criteria: 'Verified weight-for-height or weight-for-length, mid-upper arm circumference, and bilateral pitting oedema.',
-    decision: 'Approve measurement boundaries, eligibility, and how to resolve discordant findings.',
+    criteria: 'MUAC below 125 mm, WHZ below −2, or bilateral pitting oedema.',
+    decision: 'Prompt assessment. MUAC below 115 mm, WHZ below −3, or oedema calls for a facility that can evaluate and manage severe acute malnutrition.',
     source: sources.who,
   },
   {
-    id: 'referral-and-care-setting',
-    pathway: 'Referral and care setting, 6–59 months',
-    criteria: 'Review danger signs, medical complications, oedema severity, and appetite when applicable.',
-    decision: 'Approve escalation precedence and the findings required to distinguish referral pathways.',
-    source: sources.implementation,
+    id: 'routine-assessment',
+    pathway: 'Routine assessment, 6–59 months',
+    criteria: 'MUAC at least 125 mm, WHZ at least −2, oedema absent, and no danger signs reported.',
+    decision: 'Routine growth monitoring and nutritional assessment.',
+    source: sources.who,
   },
   {
     id: 'incomplete-observations',
-    pathway: 'Missing or conflicting findings',
-    criteria: 'A required observation is missing, unverified, outside eligibility, or conflicts with another finding.',
-    decision: 'Define when priority stays pending and which findings require verification.',
+    pathway: 'Incomplete observations',
+    criteria: 'Findings needed for routine classification are missing.',
+    decision: 'Assessment stays pending unless an available finding warrants higher priority.',
     source: sources.who,
   },
 ]
@@ -112,12 +119,11 @@ export default function ClinicalRuleTable() {
     <>
       <div className="intro">
         <h1>Clinical decision table</h1>
-        <p>Review the proposed criteria and responses for the research prototype.</p>
+        <p>Review how reported findings determine priority in the research prototype.</p>
       </div>
       <section className="panel" aria-labelledby="clinical-review-heading">
         <div className="panel-heading">
-          <h2 id="clinical-review-heading">Rules for review</h2>
-          <p>Draft rules are inactive.</p>
+          <h2 id="clinical-review-heading">Research rules</h2>
           <p>Validation records an admin’s review of this rule version. Clinical validation of the research system requires a separate evaluation.</p>
           {canValidate && <p>Check the criteria, response, and reference before validating a rule.</p>}
           {!supabase && <p>Sign in to the hosted workspace to view validation records.</p>}
@@ -141,7 +147,7 @@ export default function ClinicalRuleTable() {
               <tr>
                 <th scope="col">Pathway</th>
                 <th scope="col">Findings to review</th>
-                <th scope="col">Proposed response</th>
+                <th scope="col">Prototype response</th>
                 <th scope="col">Clinical reference</th>
                 <th scope="col">Validation · {rulesetVersion}</th>
               </tr>

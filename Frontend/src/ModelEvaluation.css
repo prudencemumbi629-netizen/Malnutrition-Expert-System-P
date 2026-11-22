@@ -11,3 +11,5 @@
 .evaluation-matrix { min-width: 470px; }
 .evaluation-table td.evaluation-correct { background: #e4f0e8; color: var(--ink); font-weight: 720; }
 .evaluation-note { margin-top: 16px; }
+.evaluation-select { max-width: 260px; }
+.evaluation-comparison { min-width: 530px; }

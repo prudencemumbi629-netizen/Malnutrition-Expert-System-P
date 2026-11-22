@@ -133,6 +133,76 @@ function TestResults({ report }) {
   )
 }
 
+const comparisonMetrics = [
+  ['ROC AUC', result => result.roc_auc.toFixed(4)],
+  ['Average precision', result => percent.format(result.average_precision)],
+  ['Brier score (lower is better)', result => result.brier_score.toFixed(4)],
+  ['Sensitivity', result => percent.format(result.sensitivity)],
+  ['Specificity', result => percent.format(result.specificity)],
+  ['Precision', result => result.precision === null ? '—' : percent.format(result.precision)],
+  ['Moderate cases flagged', result => flaggedCases(result.flagged_by_class.MAM)],
+  ['Severe cases flagged', result => flaggedCases(result.flagged_by_class.SAM)],
+  ['Normal cases flagged', result => flaggedCases(result.flagged_by_class.Normal)],
+]
+
+function flaggedCases({ flagged, total }) {
+  return `${counts.format(flagged)} of ${counts.format(total)}`
+}
+
+const runLabels = {
+  original: 'Original fitted model',
+  retrained: 'Retrained model',
+}
+
+function ModelComparison({ comparisons }) {
+  const [selectedIndex, setSelectedIndex] = useState(0)
+  const { baseline, candidate, test_rows: testRows, threshold } = comparisons[selectedIndex]
+
+  return (
+    <section className="panel evaluation-panel" aria-labelledby="model-comparison">
+      <div className="panel-heading">
+        <h2 id="model-comparison">Model comparison</h2>
+        <p>Both models scored the same {counts.format(testRows)} held-out records with moderate and severe acute malnutrition combined as one outcome.</p>
+      </div>
+      <div className="form-body evaluation-body">
+        {comparisons.length > 1 && (
+          <div className="field evaluation-select">
+            <label htmlFor="calibrated-run">Calibrated model run</label>
+            <select id="calibrated-run" value={selectedIndex} onChange={event => setSelectedIndex(Number(event.target.value))}>
+              {comparisons.map(({ candidate: run }, index) => (
+                <option key={run.model_version} value={index}>{runLabels[run.fit]}</option>
+              ))}
+            </select>
+          </div>
+        )}
+        <p>{runLabels[candidate.fit]} · {candidate.model_version} · {candidate.trees} trees · {candidate.calibration} calibration · scikit-learn {candidate.sklearn_version}</p>
+        <p>Sensitivity, specificity, precision, and flagged counts use a shared {percent.format(threshold)} research threshold. The current model’s binary risk is its MAM probability plus its SAM probability.</p>
+      </div>
+      <div className="decision-table-scroll" tabIndex={0} role="region" aria-label="Binary risk performance by model">
+        <table className="decision-table evaluation-table evaluation-comparison">
+          <caption>Binary risk performance by model</caption>
+          <thead>
+            <tr>
+              <th scope="col">Metric</th>
+              <th scope="col">Current Random Forest</th>
+              <th scope="col">Calibrated Random Forest</th>
+            </tr>
+          </thead>
+          <tbody>
+            {comparisonMetrics.map(([label, value]) => (
+              <tr key={label}>
+                <th scope="row">{label}</th>
+                <td>{value(baseline)}</td>
+                <td>{value(candidate)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  )
+}
+
 export default function ModelEvaluation({ hosted }) {
   const [report, setReport] = useState(undefined)
   const [failed, setFailed] = useState(false)
@@ -170,6 +240,7 @@ export default function ModelEvaluation({ hosted }) {
         <>
           <EvaluationSummary report={report} />
           <TestResults report={report} />
+          {report.comparisons?.length > 0 && <ModelComparison comparisons={report.comparisons} />}
           <p className="evaluation-note">Research evaluation on held-out survey data. The prototype requires clinical validation before use in care.</p>
         </>
       )}

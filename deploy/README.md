@@ -29,3 +29,10 @@ The local launcher and Python API can be used before any cloud services are conf
 5. Verify the deployed frontend sign-in and access controls. Use cleaned KDHS inputs in the hosted environment only where covered by the project clearance. Verify that the active model version matches the deployed model and that responses use `Cache-Control: no-store`.
 
 The published API accepts authenticated `GET` and `POST` requests at `/functions/v1/assess`. GET returns the input schema. POST returns the screening, clinical assessment, pharmacy guidance, and version sections. The first release provides model screening and shows pending states for clinical and pharmacy outputs until approved rules are available.
+
+## Use Render Free for inference
+
+1. Create a Render **Free Web Service** using the Docker runtime and `Backend/` as the build context. The Docker build needs the approved `Backend/artifacts/model.joblib` in its build context or an approved prebuilt private image. The repository ignores the local artifact. Keep the training data and evaluation report out of the image.
+2. Set `FYM_INFERENCE_TOKEN` in Render and Supabase Edge Function secrets to the same randomly generated secret. Set Render's health check path to `/health`. The schema and assessment routes require the token.
+3. Set `FYM_INFERENCE_ORIGIN` in Supabase to the Render HTTPS origin. Configure `APP_ALLOWED_ORIGINS`, reviewer access, and the active model release using the same Supabase steps above.
+4. Deploy the updated `assess` function and frontend. In the signed-in dashboard, use **Wake Render** to start the service and load the screening schema. The dashboard reports the result of the last check and sends a request only when asked.

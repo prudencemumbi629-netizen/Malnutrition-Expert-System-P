@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useEffectEvent, useState } from 'react'
 import Access from './Access.jsx'
 import { hostedMode, publishableKey, supabaseUrl } from './supabase.js'
 import './App.css'
@@ -127,20 +127,59 @@ function formatStatus(status) {
   return typeof status === 'string' ? status.replace(/[_-]/g, ' ') : ''
 }
 
+function WorkspaceOverview({ hosted, checking, checkedAt, schema, schemaError, result, busy, onWake }) {
+  const serviceStatus = checking ? (hosted ? 'Waking or checking' : 'Connecting')
+    : schemaError ? 'Unavailable' : schema ? 'Ready at last check' : 'Not checked'
+  const statusTone = checking ? 'pending' : schemaError ? 'error' : schema ? 'ready' : 'idle'
+
+  return (
+    <section className="overview" aria-label="Workspace overview">
+      <div className="panel overview-card">
+        <h2>{hosted ? 'Render inference' : 'Local inference'}</h2>
+        <div aria-live="polite">
+          <p className={`service-badge service-badge--${statusTone}`}>{serviceStatus}</p>
+          {checkedAt && <p className="overview-detail">Last checked at {checkedAt.toLocaleTimeString()}</p>}
+          {schemaError && <p className="overview-detail">{schemaError}</p>}
+        </div>
+        {hosted && <p className="overview-detail">Render Free can sleep when idle. Starting it can take about a minute.</p>}
+        <button className="button-secondary" type="button" onClick={onWake} disabled={checking || busy}>
+          {checking ? 'Checking service…' : hosted ? 'Wake Render' : 'Check connection'}
+        </button>
+      </div>
+      <div className="panel overview-card">
+        <h2>Screening model</h2>
+        <p className="overview-value">{schema?.modelVersion || 'Awaiting service check'}</p>
+        {schema && <p className="overview-detail">{schema.features.length} screening inputs</p>}
+      </div>
+      <div className="panel overview-card">
+        <h2>Current case</h2>
+        <p className="overview-value">{busy ? 'Screening in progress' : result ? 'Assessment complete' : 'No assessment yet'}</p>
+        <a href={result ? '#results-title' : '#case-title'}>{result ? 'View case results' : 'Go to screening inputs'}</a>
+      </div>
+    </section>
+  )
+}
+
 function ScreeningWorkspace({ accessToken, signOut, signOutError }) {
+  const hosted = Boolean(accessToken)
   const [schema, setSchema] = useState(null)
   const [schemaError, setSchemaError] = useState('')
-  const [schemaAttempt, setSchemaAttempt] = useState(0)
+  const [schemaAttempt, setSchemaAttempt] = useState(hosted ? 0 : 1)
+  const [checking, setChecking] = useState(!hosted)
+  const [checkedAt, setCheckedAt] = useState(null)
   const [inputs, setInputs] = useState({})
   const [clinical, setClinical] = useState({})
   const [medications, setMedications] = useState('')
   const [result, setResult] = useState(null)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const loadSchema = useEffectEvent(signal => api('schema', { signal }, accessToken))
 
   useEffect(() => {
+    if (!schemaAttempt) return
     const controller = new AbortController()
-    api('schema', { signal: controller.signal }, accessToken).then(data => {
+    const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(105_000)])
+    loadSchema(signal).then(data => {
       if (!Array.isArray(data.features) || data.features.length === 0) {
         throw new Error('The service did not provide a screening input schema.')
       }
@@ -149,10 +188,23 @@ function ScreeningWorkspace({ accessToken, signOut, signOutError }) {
         setSchemaError('')
       }
     }).catch(failure => {
-      if (!controller.signal.aborted) setSchemaError(failure.message)
+      if (!controller.signal.aborted) {
+        setSchemaError(signal.aborted ? 'The service did not respond in time.' : failure.message)
+      }
+    }).finally(() => {
+      if (!controller.signal.aborted) {
+        setCheckedAt(new Date())
+        setChecking(false)
+      }
     })
     return () => controller.abort()
-  }, [accessToken, schemaAttempt])
+  }, [schemaAttempt])
+
+  function checkService() {
+    setChecking(true)
+    setSchemaError('')
+    setSchemaAttempt(attempt => attempt + 1)
+  }
 
   function reset() {
     setInputs({})
@@ -164,7 +216,7 @@ function ScreeningWorkspace({ accessToken, signOut, signOutError }) {
 
   async function submit(event) {
     event.preventDefault()
-    if (busy || !schema) return
+    if (busy || checking || schemaError || !schema) return
     const screeningInputs = Object.fromEntries(
       schema.features.filter(({ key }) => inputs[key] !== undefined && inputs[key] !== '')
         .map(({ key }) => [key, Number(inputs[key])]),
@@ -202,7 +254,6 @@ function ScreeningWorkspace({ accessToken, signOut, signOutError }) {
         <div className="site-header-inner">
           <div className="brand"><span className="brand-mark" aria-hidden="true">+</span> Project FYM</div>
           <div className="header-actions">
-            <span className="service-state">{schemaError ? 'Service unavailable' : schema ? 'Screening service ready' : 'Connecting to service'}</span>
             {signOut && <button className="button-secondary" onClick={signOut}>Sign out</button>}
           </div>
         </div>
@@ -214,6 +265,8 @@ function ScreeningWorkspace({ accessToken, signOut, signOutError }) {
           <h1>Acute malnutrition screening</h1>
           <p>Review model screening and available clinical context for a research case.</p>
         </div>
+        <WorkspaceOverview hosted={hosted} checking={checking} checkedAt={checkedAt}
+          schema={schemaError ? null : schema} schemaError={schemaError} result={result} busy={busy} onWake={checkService} />
         <div className="workspace-grid">
           <section className="panel" aria-labelledby="case-title">
             <div className="panel-heading">
@@ -221,13 +274,9 @@ function ScreeningWorkspace({ accessToken, signOut, signOutError }) {
               <h2 id="case-title">Screening inputs</h2>
               <p>Use values from an approved research case. Fields marked * are required.</p>
             </div>
-            {schemaError ? (
-              <div className="form-body">
-                <p className="error" role="alert">{schemaError}</p>
-                <button className="button-secondary" onClick={() => { setSchemaError(''); setSchemaAttempt(attempt => attempt + 1) }}>Retry connection</button>
-              </div>
-            ) : !schema ? (
-              <p className="form-body" role="status">Loading screening inputs…</p>
+            {!schema ? (
+              <p className="form-body" role="status">{checking ? 'Waiting for screening inputs…'
+                : hosted ? 'Use Wake Render to load the screening inputs.' : 'Check the local service to load the screening inputs.'}</p>
             ) : (
               <form onSubmit={submit}>
                 <div className="form-body">
@@ -267,7 +316,7 @@ function ScreeningWorkspace({ accessToken, signOut, signOutError }) {
                   {error && <p className="error" role="alert">{error}</p>}
                 </div>
                 <div className="form-actions">
-                  <button className="button-primary" type="submit" disabled={busy}>{busy ? 'Running screening…' : 'Run screening'}</button>
+                  <button className="button-primary" type="submit" disabled={busy || checking || Boolean(schemaError)}>{busy ? 'Running screening…' : 'Run screening'}</button>
                   <button className="button-secondary" type="button" onClick={reset} disabled={busy}>Clear form</button>
                 </div>
               </form>

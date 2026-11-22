@@ -41,7 +41,7 @@ function EvaluationSummary({ report }) {
   return (
     <section className="panel evaluation-panel" aria-labelledby="model-training">
       <div className="panel-heading">
-        <h2 id="model-training">Model and training</h2>
+        <h2 id="model-training">{report.comparisons?.length ? 'Current model training details' : 'Model and training'}</h2>
         <p>{training.algorithm} trained on the processed Kenya Demographic and Health Survey (KDHS) cohort.</p>
       </div>
       <div className="form-body evaluation-body">
@@ -69,7 +69,7 @@ function TestResults({ report }) {
   return (
     <section className="panel evaluation-panel" aria-labelledby="model-test-results">
       <div className="panel-heading">
-        <h2 id="model-test-results">Held-out test results</h2>
+        <h2 id="model-test-results">{report.comparisons?.length ? 'Current model three-class results' : 'Held-out test results'}</h2>
         <p>{counts.format(report.test_rows)} records from survey clusters reserved for testing.</p>
       </div>
       <div className="form-body evaluation-body">
@@ -154,7 +154,28 @@ const runLabels = {
   retrained: 'Retrained model',
 }
 
-function ModelComparison({ comparisons }) {
+function ModelProfile({ title, version, trees, library, outcome, calibration, result }) {
+  return (
+    <article className="evaluation-profile">
+      <h3>{title}</h3>
+      <p className="evaluation-model-version">{version}</p>
+      <dl className="evaluation-profile-facts">
+        <div><dt>Trees</dt><dd>{counts.format(trees)}</dd></div>
+        <div><dt>scikit-learn</dt><dd>{library}</dd></div>
+        <div><dt>Training outcome</dt><dd>{outcome}</dd></div>
+        <div><dt>Calibration</dt><dd>{calibration}</dd></div>
+      </dl>
+      <dl className="evaluation-profile-results">
+        {comparisonMetrics.map(([label, value]) => (
+          <div key={label}><dt>{label}</dt><dd>{value(result)}</dd></div>
+        ))}
+      </dl>
+    </article>
+  )
+}
+
+function ModelComparison({ report }) {
+  const { comparisons } = report
   const [selectedIndex, setSelectedIndex] = useState(0)
   const { baseline, candidate, test_rows: testRows, threshold } = comparisons[selectedIndex]
 
@@ -175,29 +196,15 @@ function ModelComparison({ comparisons }) {
             </select>
           </div>
         )}
-        <p>{runLabels[candidate.fit]} · {candidate.model_version} · {candidate.trees} trees · {candidate.calibration} calibration · scikit-learn {candidate.sklearn_version}</p>
+        <div className="evaluation-models">
+          <ModelProfile title="Current Random Forest" version={report.model_version}
+            trees={report.training.trees} library={report.sklearn_version} outcome="Normal, MAM, or SAM"
+            calibration="Uncalibrated" result={baseline} />
+          <ModelProfile title="Calibrated Random Forest" version={candidate.model_version}
+            trees={candidate.trees} library={candidate.sklearn_version} outcome="Normal or acute malnutrition"
+            calibration={candidate.calibration} result={candidate} />
+        </div>
         <p>Sensitivity, specificity, precision, and flagged counts use a shared {percent.format(threshold)} research threshold. The current model’s binary risk is its MAM probability plus its SAM probability.</p>
-      </div>
-      <div className="decision-table-scroll" tabIndex={0} role="region" aria-label="Binary risk performance by model">
-        <table className="decision-table evaluation-table evaluation-comparison">
-          <caption>Binary risk performance by model</caption>
-          <thead>
-            <tr>
-              <th scope="col">Metric</th>
-              <th scope="col">Current Random Forest</th>
-              <th scope="col">Calibrated Random Forest</th>
-            </tr>
-          </thead>
-          <tbody>
-            {comparisonMetrics.map(([label, value]) => (
-              <tr key={label}>
-                <th scope="row">{label}</th>
-                <td>{value(baseline)}</td>
-                <td>{value(candidate)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
       </div>
     </section>
   )
@@ -238,9 +245,9 @@ export default function ModelEvaluation({ hosted }) {
         <p className="panel form-body">No evaluation report is available for the active model.</p>
       ) : (
         <>
+          {report.comparisons?.length > 0 && <ModelComparison report={report} />}
           <EvaluationSummary report={report} />
           <TestResults report={report} />
-          {report.comparisons?.length > 0 && <ModelComparison comparisons={report.comparisons} />}
           <p className="evaluation-note">Research evaluation on held-out survey data. The prototype requires clinical validation before use in care.</p>
         </>
       )}

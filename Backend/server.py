@@ -10,6 +10,7 @@ import joblib
 from schema import CLASSES, FEATURES, screening_row
 
 MAX_REQUEST_BYTES = 16_384
+MAX_BATCH_CASES = 40
 DEFAULT_ARTIFACT = Path(__file__).resolve().parent / "artifacts" / "model.joblib"
 DANGER_SIGNS = {
     "convulsions": "Convulsions now or recently",
@@ -133,7 +134,7 @@ def evaluation_summary(artifact_path, artifact):
     return summary
 
 
-def assess(artifact, payload):
+def assessment_inputs(payload):
     fields = {"screeningInputs", "clinicalInputs", "medicationContext"}
     if not isinstance(payload, dict) or payload.keys() - fields:
         raise ValueError("Invalid assessment fields.")
@@ -161,8 +162,11 @@ def assess(artifact, payload):
     ):
         raise ValueError("Provide up to 20 medication names.")
 
-    model = artifact["model"]
-    probabilities = dict(zip(model.classes_, model.predict_proba([row])[0]))
+    return row, payload["screeningInputs"]["b19"], clinical
+
+
+def assessment_result(artifact, age_months, clinical, probabilities):
+    probabilities = dict(zip(artifact["model"].classes_, probabilities))
     scores = {name: float(probabilities[name]) for name in CLASSES}
     return {
         "screening": {
@@ -170,7 +174,7 @@ def assess(artifact, payload):
             "scores": scores,
             "malnutritionProbability": scores["MAM"] + scores["SAM"],
         },
-        "clinicalAssessment": assess_clinical(payload["screeningInputs"]["b19"], clinical),
+        "clinicalAssessment": assess_clinical(age_months, clinical),
         "researchDisclaimer": RESEARCH_DISCLAIMER,
         "pharmacyGuidance": {
             "status": "unavailable",
@@ -179,6 +183,33 @@ def assess(artifact, payload):
         },
         "versions": {"model": artifact["version"]},
     }
+
+
+def assess(artifact, payload):
+    row, age_months, clinical = assessment_inputs(payload)
+    probabilities = artifact["model"].predict_proba([row])[0]
+    return assessment_result(artifact, age_months, clinical, probabilities)
+
+
+def assess_batch(artifact, cases):
+    results = [None] * len(cases)
+    valid = []
+    for index, case in enumerate(cases):
+        try:
+            row, age_months, clinical = assessment_inputs(case)
+        except (ValueError, OverflowError) as error:
+            results[index] = {"error": str(error)}
+        else:
+            valid.append((index, row, age_months, clinical))
+    if valid:
+        probabilities = artifact["model"].predict_proba([entry[1] for entry in valid])
+        for (index, _, age_months, clinical), scores in zip(valid, probabilities):
+            result = assessment_result(artifact, age_months, clinical, scores)
+            results[index] = {
+                "screening": result["screening"],
+                "clinicalAssessment": result["clinicalAssessment"],
+            }
+    return {"results": results, "versions": {"model": artifact["version"]}}
 
 
 class AssessmentHandler(BaseHTTPRequestHandler):
@@ -210,6 +241,7 @@ class AssessmentHandler(BaseHTTPRequestHandler):
             return self.send_json(200, {
                 "features": FEATURES,
                 "modelVersion": artifact["version"],
+                "batchMaxCases": MAX_BATCH_CASES,
                 "dangerSigns": [{"key": key, "label": label} for key, label in DANGER_SIGNS.items()],
             })
         if self.path == "/api/evaluation":
@@ -224,7 +256,7 @@ class AssessmentHandler(BaseHTTPRequestHandler):
         return self.send_json(404, {"error": "Route not found."})
 
     def do_POST(self):
-        if self.path != "/api/assess":
+        if self.path not in ("/api/assess", "/api/batch-assess"):
             return self.send_json(404, {"error": "Route not found."})
         if not self.authorized():
             return self.send_json(401, {"error": "Unauthorized."})
@@ -241,6 +273,15 @@ class AssessmentHandler(BaseHTTPRequestHandler):
             payload = json.loads(self.rfile.read(size))
         except (UnicodeError, ValueError, RecursionError):
             return self.send_json(400, {"error": "The request contains invalid JSON."})
+        if self.path == "/api/batch-assess":
+            if (not isinstance(payload, dict) or set(payload) != {"cases", "modelVersion"}
+                    or not isinstance(payload["cases"], list)
+                    or not 1 <= len(payload["cases"]) <= MAX_BATCH_CASES
+                    or not isinstance(payload["modelVersion"], str)):
+                return self.send_json(400, {"error": "Provide a model version and 1 to 40 cases."})
+            if payload["modelVersion"] != self.server.artifact["version"]:
+                return self.send_json(409, {"error": "The model version changed. Start a new batch."})
+            return self.send_json(200, assess_batch(self.server.artifact, payload["cases"]))
         try:
             result = assess(self.server.artifact, payload)
         except (ValueError, OverflowError) as error:

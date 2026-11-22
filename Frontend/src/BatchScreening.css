@@ -1,0 +1,17 @@
+.batch-upload, .batch-results { display: grid; gap: 16px; }
+.batch-results, .batch-note { margin-top: 20px; }
+.batch-actions, .batch-toolbar, .batch-pages { display: flex; flex-wrap: wrap; align-items: end; gap: 10px; }
+.batch-toolbar { justify-content: space-between; }
+.batch-upload p, .batch-note, .batch-labels p { color: var(--muted); line-height: 1.5; font-size: 14px; }
+.batch-upload p + button, .batch-format p { margin-top: 8px; }
+.batch-progress { display: grid; gap: 6px; font-size: 14px; }
+.batch-progress progress { width: 100%; accent-color: var(--accent); }
+.batch-counts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 150px), 1fr)); gap: 10px; margin: 0; }
+.batch-counts > div { background: var(--tint, #f2f6f2); padding: 12px; border-radius: 8px; }
+.batch-counts dt { font-size: 13px; color: var(--muted); }
+.batch-counts dd { margin: 4px 0 0; font-size: 22px; font-weight: 730; font-variant-numeric: tabular-nums; }
+.batch-labels { display: grid; gap: 8px; margin-top: 20px; }
+.batch-detail { background: var(--tint, #f2f6f2); }
+.batch-detail > * + * { margin-top: 8px; }
+.batch-details-button { display: block; margin-top: 6px; padding: 0; border: 0; background: none; color: var(--accent); text-decoration: underline; }
+.batch-pages { align-items: center; font-size: 14px; }

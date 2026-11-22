@@ -1,8 +1,9 @@
 import { useEffect, useEffectEvent, useRef, useState } from 'react'
 import Access from './Access.jsx'
+import BatchScreening from './BatchScreening.jsx'
 import ClinicalRuleTable from './ClinicalRuleTable.jsx'
 import ModelEvaluation from './ModelEvaluation.jsx'
-import { hostedMode, publishableKey, supabaseUrl } from './supabase.js'
+import { hostedMode, publishableKey, supabase, supabaseUrl } from './supabase.js'
 import './App.css'
 
 const whzOptions = Array.from({ length: 121 }, (_, index) => ((index - 60) / 10).toFixed(1))
@@ -24,9 +25,24 @@ async function api(path, options, accessToken) {
   const body = await response.json().catch(() => null)
   if (!response.ok || !body) {
     const detail = [body?.error, body?.message, body?.detail].find(value => typeof value === 'string')
-    throw new Error(detail || 'The assessment service is unavailable. Try again in a moment.')
+    throw Object.assign(new Error(detail || 'The assessment service is unavailable. Try again in a moment.'), {
+      status: response.status,
+      retryAfter: Number(response.headers.get('Retry-After')),
+    })
   }
   return body
+}
+
+async function requestBatch(body, signal) {
+  let token
+  if (hostedMode) {
+    const { data, error } = await supabase.auth.getSession()
+    if (error || !data.session?.access_token) throw new Error('Sign in to resume the batch.')
+    token = data.session.access_token
+  }
+  return api('batch-assess', {
+    method: 'POST', body, signal, headers: { 'Content-Type': 'application/json' },
+  }, token)
 }
 
 function Predictor({ feature, value, onChange, disabled }) {
@@ -301,6 +317,7 @@ function ScreeningWorkspace({ accessToken, signOut, signOutError }) {
           <div className="brand">Project FYM</div>
           <nav className="workspace-nav" aria-label="Workspace">
             <a href="#screening" aria-current={page === 'screening' ? 'page' : undefined}>Screening</a>
+            <a href="#batch-screening" aria-current={page === 'batch-screening' ? 'page' : undefined}>Batch screening</a>
             <a href="#clinical-rules" aria-current={page === 'clinical-rules' ? 'page' : undefined}>Decision table</a>
             <a href="#model-evaluation" aria-current={page === 'model-evaluation' ? 'page' : undefined}>Model evaluation</a>
           </nav>
@@ -313,7 +330,13 @@ function ScreeningWorkspace({ accessToken, signOut, signOutError }) {
       </header>
       <main className="workspace" id="main-content" tabIndex={-1}>
         {signOutError && <p className="error" role="alert">{signOutError}</p>}
-        {page === 'clinical-rules' ? <ClinicalRuleTable /> : page === 'model-evaluation' ? <ModelEvaluation hosted={hosted} /> : <>
+        <div hidden={page !== 'batch-screening'}>
+          <BatchScreening schema={schema} checking={checking} schemaError={schemaError}
+            onCheck={checkService} requestBatch={requestBatch} />
+        </div>
+        {page === 'clinical-rules' && <ClinicalRuleTable />}
+        {page === 'model-evaluation' && <ModelEvaluation hosted={hosted} />}
+        {page === 'screening' && <>
         <div className="intro" id="screening">
           <h1>Screen a child under five</h1>
           <p>Record danger signs and measurements first. The priority comes from these clinical findings, and the model score is shown separately for research.</p>
@@ -436,7 +459,7 @@ function ScreeningWorkspace({ accessToken, signOut, signOutError }) {
 }
 
 function workspacePage(hash) {
-  if (hash === '#clinical-rules' || hash === '#model-evaluation') return hash.slice(1)
+  if (['#batch-screening', '#clinical-rules', '#model-evaluation'].includes(hash)) return hash.slice(1)
   return 'screening'
 }
 

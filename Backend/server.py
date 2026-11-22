@@ -49,6 +49,9 @@ def assess(artifact, payload):
         "screening": {"predictedClass": str(max(probabilities, key=probabilities.get)), "scores": scores},
         "clinicalAssessment": {
             "status": "pending_rule_review" if clinical else "assessment_pending",
+            "priority": None,
+            "recommendation": None,
+            "ruleVersion": None,
             "message": (
                 "Clinical rules are awaiting review." if clinical
                 else "No clinical findings were supplied."

@@ -1,0 +1,14 @@
+/.tools/
+/.wrangler/
+**/.wrangler/
+**/node_modules/
+**/dist/
+**/.env
+**/.env.*
+!**/.env.example
+**/.dev.vars
+**/.dev.vars.*
+**/.venv/
+**/__pycache__/
+/supabase/.temp/
+/Docs/

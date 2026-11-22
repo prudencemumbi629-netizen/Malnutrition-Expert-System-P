@@ -21,6 +21,7 @@ where user_id = '<reviewer-auth-user-id>';
 ```
 
 The reviewer can then sign in and select **Validate rule** on the clinical decision table. Supabase records the first validation for each rule version, including the reviewer and timestamp. Workspace members can see the status and date. Bump the table’s ruleset version when its criteria, decisions, or sources change so revised rules receive a fresh review.
+
 ### Publish the model evaluation
 
 Apply the model evaluations migration to create the report table. In the approved research environment, run `python Backend/export_evaluation.py` against the artifact used by the active release. The command prints model settings and aggregate results for the held-out test set.

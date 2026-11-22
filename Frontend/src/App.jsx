@@ -1,6 +1,7 @@
 import { useEffect, useEffectEvent, useState } from 'react'
 import Access from './Access.jsx'
 import ClinicalRuleTable from './ClinicalRuleTable.jsx'
+import ModelEvaluation from './ModelEvaluation.jsx'
 import { hostedMode, publishableKey, supabaseUrl } from './supabase.js'
 import './App.css'
 
@@ -164,7 +165,7 @@ function WorkspaceOverview({ hosted, checking, checkedAt, schema, schemaError, r
 
 function ScreeningWorkspace({ accessToken, signOut, signOutError }) {
   const hosted = Boolean(accessToken)
-  const [clinicalPage, setClinicalPage] = useState(() => window.location.hash === '#clinical-rules')
+  const [page, setPage] = useState(() => workspacePage(window.location.hash))
   const [schema, setSchema] = useState(null)
   const [schemaError, setSchemaError] = useState('')
   const [schemaAttempt, setSchemaAttempt] = useState(hosted ? 0 : 1)
@@ -181,7 +182,7 @@ function ScreeningWorkspace({ accessToken, signOut, signOutError }) {
   useEffect(() => {
     function onNavigation() {
       if (window.location.hash === '#main-content') return
-      setClinicalPage(window.location.hash === '#clinical-rules')
+      setPage(workspacePage(window.location.hash))
     }
     window.addEventListener('hashchange', onNavigation)
     return () => window.removeEventListener('hashchange', onNavigation)
@@ -274,12 +275,13 @@ function ScreeningWorkspace({ accessToken, signOut, signOutError }) {
       </header>
       <div className="workspace-shell">
         <nav className="workspace-nav" aria-label="Workspace">
-          <a href="#screening" aria-current={!clinicalPage ? 'page' : undefined}>Screening</a>
-          <a href="#clinical-rules" aria-current={clinicalPage ? 'page' : undefined}>Clinical decision table</a>
+          <a href="#screening" aria-current={page === 'screening' ? 'page' : undefined}>Screening</a>
+          <a href="#clinical-rules" aria-current={page === 'clinical-rules' ? 'page' : undefined}>Clinical decision table</a>
+          <a href="#model-evaluation" aria-current={page === 'model-evaluation' ? 'page' : undefined}>Model evaluation</a>
         </nav>
       <main className="workspace" id="main-content" tabIndex={-1}>
         {signOutError && <p className="error" role="alert">{signOutError}</p>}
-        {clinicalPage ? <ClinicalRuleTable /> : <>
+        {page === 'clinical-rules' ? <ClinicalRuleTable /> : page === 'model-evaluation' ? <ModelEvaluation hosted={hosted} /> : <>
         <div className="intro" id="screening">
           <p className="kicker">Kenya · Under five</p>
           <h1>Acute malnutrition screening</h1>
@@ -395,6 +397,11 @@ function ScreeningWorkspace({ accessToken, signOut, signOutError }) {
       </div>
     </>
   )
+}
+
+function workspacePage(hash) {
+  if (hash === '#clinical-rules' || hash === '#model-evaluation') return hash.slice(1)
+  return 'screening'
 }
 
 export default function App() {

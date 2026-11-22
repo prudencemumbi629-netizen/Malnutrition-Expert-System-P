@@ -98,6 +98,28 @@ def optional_object(payload, key, fields):
     return values
 
 
+def evaluation_summary(artifact_path, artifact):
+    report = json.loads(artifact_path.with_name("evaluation.json").read_text(encoding="utf-8"))
+    if report["model_version"] != artifact["version"]:
+        raise ValueError("Evaluation report does not match the loaded model.")
+
+    forest = artifact["model"].steps[-1][1]
+    summary = {key: report[key] for key in (
+        "model_version", "sklearn_version", "train_rows", "test_rows", "accuracy",
+        "all_normal_accuracy", "classification_report", "confusion_matrix",
+        "confusion_matrix_class_order", "curves",
+    )}
+    summary["training"] = {
+        "algorithm": "Random Forest",
+        "predictors": len(artifact["features"]),
+        "trees": forest.n_estimators,
+        "minimum_leaf_samples": forest.min_samples_leaf,
+        "class_weight": forest.class_weight,
+        "random_seed": forest.random_state,
+    }
+    return summary
+
+
 def assess(artifact, payload):
     fields = {"screeningInputs", "clinicalInputs", "medicationContext"}
     if not isinstance(payload, dict) or payload.keys() - fields:
@@ -177,6 +199,15 @@ class AssessmentHandler(BaseHTTPRequestHandler):
                 "modelVersion": artifact["version"],
                 "dangerSigns": [{"key": key, "label": label} for key, label in DANGER_SIGNS.items()],
             })
+        if self.path == "/api/evaluation":
+            if not self.authorized():
+                return self.send_json(401, {"error": "Unauthorized."})
+            try:
+                return self.send_json(200, evaluation_summary(self.server.artifact_path, artifact))
+            except FileNotFoundError:
+                return self.send_json(404, {"error": "No evaluation report is available for this model."})
+            except (OSError, ValueError, KeyError, TypeError):
+                return self.send_json(503, {"error": "The evaluation report could not be loaded."})
         return self.send_json(404, {"error": "Route not found."})
 
     def do_POST(self):
@@ -218,6 +249,7 @@ def main():
         raise SystemExit("Model schema mismatch. Train a compatible model artifact.")
     with ThreadingHTTPServer((host, port), AssessmentHandler) as server:
         server.artifact = artifact
+        server.artifact_path = artifact_path
         server.inference_token = f"Bearer {token}".encode() if token else b""
         print(f"FYM inference listening on http://{host}:{port}", flush=True)
         try:

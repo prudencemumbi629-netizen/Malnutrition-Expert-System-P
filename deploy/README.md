@@ -21,6 +21,23 @@ where user_id = '<reviewer-auth-user-id>';
 ```
 
 The reviewer can then sign in and select **Validate rule** on the clinical decision table. Supabase records the first validation for each rule version, including the reviewer and timestamp. Workspace members can see the status and date. Bump the table’s ruleset version when its criteria, decisions, or sources change so revised rules receive a fresh review.
+### Publish the model evaluation
+
+Apply the model evaluations migration to create the report table. In the approved research environment, run `python Backend/export_evaluation.py` against the artifact used by the active release. The command prints model settings and aggregate results for the held-out test set.
+
+When the aggregate report is approved for the hosted workspace, insert the exported JSON through the Supabase SQL editor as a database administrator. Replace the placeholder inside the dollar quotes with the full JSON output.
+
+```sql
+with evaluation(report) as (
+    values ($evaluation$PASTE_EXPORTED_JSON_HERE$evaluation$::jsonb)
+)
+insert into public.model_evaluations (model_version, report)
+select report ->> 'model_version', report from evaluation
+on conflict (model_version) do update set report = excluded.report;
+```
+
+Workspace members can read the report for the active release from **Model evaluation**. Keep the source dataset, holdout rows, and full report in the approved research environment.
+
 ## Deploy Cloudflare
 
 1. Prepare the approved model artifact as described in the Python backend setup. The Docker build context is `Backend/`. Use a Workers Paid account with a Docker-compatible toolchain for Containers.

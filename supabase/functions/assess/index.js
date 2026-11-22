@@ -45,7 +45,7 @@ Deno.serve(async (request) => {
   const apiKey = request.headers.get('apikey')
   if (!authorization?.startsWith('Bearer ') || !apiKey) return json({ error: 'Sign in first.' }, 401)
   if (!supabaseUrl || !inferenceOrigin || !inferenceToken) {
-    return json({ error: 'The assessment service is unavailable.' }, 503)
+    return json({ error: 'The inference service has not been configured.' }, 503)
   }
 
   let payload
@@ -97,15 +97,28 @@ Deno.serve(async (request) => {
     if (!release) return json({ error: 'No model release is active.' }, 503)
 
     const path = request.method === 'GET' ? '/api/schema' : '/api/assess'
-    const inference = await fetch(new URL(path, inferenceOrigin), {
+    const checking = request.method === 'GET'
+    const signal = AbortSignal.timeout(checking ? 85_000 : 25_000)
+    const upstream = new URL(path, inferenceOrigin)
+    const options = {
       method: request.method,
       headers: {
         Authorization: `Bearer ${inferenceToken}`,
         'Content-Type': 'application/json',
       },
       body: payload === undefined ? undefined : JSON.stringify(payload),
-      signal: AbortSignal.timeout(25_000),
-    })
+      redirect: 'error',
+      signal,
+    }
+    let inference = await fetch(upstream, options)
+    while (checking && !signal.aborted && (
+      [502, 503, 504].includes(inference.status)
+      || (inference.ok && !inference.headers.get('Content-Type')?.startsWith('application/json'))
+    )) {
+      await inference.body?.cancel()
+      await new Promise(resolve => setTimeout(resolve, 3000))
+      inference = await fetch(upstream, options)
+    }
     if ([400, 422].includes(inference.status)) {
       return json({ error: 'Check the assessment inputs and try again.' }, inference.status)
     }

@@ -1,3 +1,4 @@
+import hmac
 import json
 import math
 import os
@@ -63,6 +64,11 @@ def assess(artifact, payload):
 
 
 class AssessmentHandler(BaseHTTPRequestHandler):
+    def authorized(self):
+        token = self.server.inference_token
+        authorization = self.headers.get("Authorization", "").encode()
+        return not token or hmac.compare_digest(authorization, token)
+
     def send_json(self, status, payload):
         encoded = json.dumps(payload, allow_nan=False).encode()
         self.send_response(status)
@@ -81,12 +87,16 @@ class AssessmentHandler(BaseHTTPRequestHandler):
         if self.path == "/health":
             return self.send_json(200, {"status": "ok"})
         if self.path == "/api/schema":
+            if not self.authorized():
+                return self.send_json(401, {"error": "Unauthorized."})
             return self.send_json(200, {"features": FEATURES, "modelVersion": artifact["version"]})
         return self.send_json(404, {"error": "Route not found."})
 
     def do_POST(self):
         if self.path != "/api/assess":
             return self.send_json(404, {"error": "Route not found."})
+        if not self.authorized():
+            return self.send_json(401, {"error": "Unauthorized."})
         if self.headers.get_content_type() != "application/json":
             return self.send_json(415, {"error": "Send an application/json request."})
         try:
@@ -108,6 +118,9 @@ class AssessmentHandler(BaseHTTPRequestHandler):
 
 
 def main():
+    token = os.environ.get("FYM_INFERENCE_TOKEN")
+    if os.environ.get("RENDER") == "true" and not token:
+        raise SystemExit("Set FYM_INFERENCE_TOKEN before serving inference on Render.")
     host = os.environ.get("HOST", "127.0.0.1")
     port = int(os.environ.get("PORT", "8000"))
     artifact_path = Path(os.environ.get("FYM_MODEL_ARTIFACT", DEFAULT_ARTIFACT))
@@ -118,6 +131,7 @@ def main():
         raise SystemExit("Model schema mismatch. Train a compatible model artifact.")
     with ThreadingHTTPServer((host, port), AssessmentHandler) as server:
         server.artifact = artifact
+        server.inference_token = f"Bearer {token}".encode() if token else b""
         print(f"FYM inference listening on http://{host}:{port}", flush=True)
         try:
             server.serve_forever()

@@ -32,7 +32,7 @@ The published API accepts authenticated `GET` and `POST` requests at `/functions
 
 ## Use Render Free for inference
 
-1. Create a Render **Free Web Service** using the Docker runtime and `Backend/` as the build context. The Docker build needs the approved `Backend/artifacts/model.joblib` in its build context or an approved prebuilt private image. The repository ignores the local artifact. Keep the training data and evaluation report out of the image.
+1. Create a Render **Free Web Service** using Docker, `Backend/` as the root directory, and `Dockerfile.render` as the Dockerfile. Upload the approved model to private storage. In Render, create a secret file named `fym_model_url` containing its signed HTTPS download URL and set `FYM_MODEL_SHA256` to the artifact's lowercase SHA-256 digest. The build verifies the download against that digest before it packages the model. Refresh the URL before an uncached rebuild if it has expired. Keep the training data and evaluation report out of the image.
 2. Set `FYM_INFERENCE_TOKEN` in Render and Supabase Edge Function secrets to the same randomly generated secret. Set Render's health check path to `/health`. The schema and assessment routes require the token.
 3. Set `FYM_INFERENCE_ORIGIN` in Supabase to the Render HTTPS origin. Configure `APP_ALLOWED_ORIGINS`, reviewer access, and the active model release using the same Supabase steps above.
 4. Deploy the updated `assess` function and frontend. In the signed-in dashboard, use **Wake Render** to start the service and load the screening schema. The dashboard reports the result of the last check and sends a request only when asked.

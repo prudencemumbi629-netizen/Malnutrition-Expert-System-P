@@ -117,6 +117,19 @@ def evaluation_summary(artifact_path, artifact):
         "class_weight": forest.class_weight,
         "random_seed": forest.random_state,
     }
+    comparisons = []
+    for path in sorted((artifact_path.parent / "comparisons").glob("*.json")):
+        try:
+            comparison = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if (isinstance(comparison, dict)
+                and comparison.get("baseline_model_version") == artifact["version"]
+                and comparison.get("train_rows") == report["train_rows"]
+                and comparison.get("test_rows") == report["test_rows"]):
+            comparisons.append(comparison)
+    if comparisons:
+        summary["comparisons"] = comparisons
     return summary
 
 

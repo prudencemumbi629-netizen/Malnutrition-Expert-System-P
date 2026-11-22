@@ -22,6 +22,7 @@
 .decision-table tbody tr { border-top: 1px solid var(--border); }
 .decision-table tbody td { color: var(--muted); }
 .decision-table a { color: var(--accent); }
+.rule-validation-action { margin-top: 8px; }
 .intro { margin-bottom: 30px; }
 .kicker { color: var(--accent); text-transform: uppercase; font-size: 11px; font-weight: 750; letter-spacing: .12em; }
 .intro h1 { font-size: clamp(29px, 4.5vw, 48px); letter-spacing: -.045em; line-height: 1.14; margin: 7px 0 9px; }
@@ -54,6 +55,10 @@
 .context summary { cursor: pointer; font-weight: 700; }
 .context summary span { color: var(--muted); font-size: 12px; font-weight: 500; margin-left: 5px; }
 .context-fields { margin-top: 12px; }
+.danger-signs { border: 0; border-top: 1px solid var(--border); padding-inline: 0; min-inline-size: 0; }
+.danger-signs legend { font-weight: 700; }
+.danger-signs .context-fields { margin-top: 0; }
+.danger-signs input[type="checkbox"] { width: auto; min-height: 0; margin: 0 5px 0 0; }
 .form-actions { display: flex; flex-wrap: wrap; gap: 10px; padding: 15px 24px; border-top: 1px solid var(--border); }
 .button-primary, .button-secondary { display: inline-flex; justify-content: center; align-items: center; border-radius: 8px; min-height: 42px; padding: 8px 14px; font-weight: 720; font-size: 14px; }
 .button-primary { background: #146356; border: 1px solid #146356; color: #fff; gap: 13px; }

@@ -1,0 +1,26 @@
+.evaluation-panel + .evaluation-panel { margin-top: 20px; }
+.evaluation-body { display: grid; gap: 18px; }
+.evaluation-body > p, .evaluation-note { color: var(--muted); font-size: 14px; line-height: 1.55; }
+.evaluation-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 190px), 1fr)); gap: 10px; margin: 0; }
+.evaluation-facts > div { background: #f2f6f2; border-radius: 8px; padding: 12px 14px; }
+.evaluation-facts dt { color: var(--muted); font-size: 13px; }
+.evaluation-facts dd { margin: 4px 0 0; font-weight: 730; overflow-wrap: anywhere; }
+.evaluation-metrics dd { color: var(--ink); font-size: 24px; font-variant-numeric: tabular-nums; }
+.evaluation-table caption { padding: 14px 18px; border-top: 1px solid var(--border); font-size: 16px; font-weight: 720; text-align: left; }
+.evaluation-table th:not(:first-child), .evaluation-table td { text-align: right; font-variant-numeric: tabular-nums; }
+.evaluation-matrix { min-width: 470px; }
+.evaluation-table td.evaluation-correct { background: #e4f0e8; color: var(--ink); font-weight: 720; }
+.evaluation-note { margin-top: 16px; }
+.evaluation-select { max-width: 260px; }
+.evaluation-models { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 16px; }
+.evaluation-profile { min-width: 0; padding: 16px; border: 1px solid var(--border); border-radius: 12px; display: grid; grid-row: span 3; grid-template-rows: subgrid; }
+.evaluation-model-version { margin-top: 5px; color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
+.evaluation-profile-facts { margin: 14px 0 0; }
+.evaluation-profile-facts { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 12px; background: #f2f6f2; border-radius: 8px; }
+.evaluation-profile-facts dt { color: var(--muted); font-size: 12px; }
+.evaluation-profile-facts dd { margin: 4px 0 0; font-size: 13px; font-weight: 670; }
+.evaluation-target-status { display: block; color: var(--ink); font-size: 12px; font-weight: 700; }
+@media (max-width: 680px) {
+  .evaluation-models { grid-template-columns: 1fr; row-gap: 12px; }
+  .evaluation-profile { display: block; grid-row: auto; }
+}

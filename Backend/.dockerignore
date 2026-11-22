@@ -1,5 +1,7 @@
 **
 !Dockerfile
+!Dockerfile.render
+!fetch_model.py
 !requirements.txt
 !schema.py
 !server.py

@@ -10,6 +10,35 @@ The local launcher and Python API can be used before any cloud services are conf
 4. Set `APP_ALLOWED_ORIGINS` to the approved frontend origin or a comma-separated list of origins. Add the frontend URL to the Auth redirect allowlist if the configured sign-in flow requires a redirect.
 5. Set `FYM_INFERENCE_ORIGIN` to the HTTPS origin of the inference Worker and store `FYM_INFERENCE_TOKEN` as an Edge Function secret. Use the same randomly generated token in the inference Worker secret.
 
+### Assign clinical rule validation access
+
+After applying the clinical rule validation migration, a database administrator can enable the action for a designated reviewer who already belongs to the research workspace. Use that reviewer’s Supabase Auth user ID.
+
+```sql
+update public.demo_members
+set can_validate_clinical_rules = true
+where user_id = '<reviewer-auth-user-id>';
+```
+
+The reviewer can then sign in and select **Validate rule** on the clinical decision table. Supabase records the first validation for each rule version, including the reviewer and timestamp. Workspace members can see the status and date. Bump the table’s ruleset version when its criteria, decisions, or sources change so revised rules receive a fresh review.
+
+### Publish the model evaluation
+
+Apply the model evaluations migration to create the report table. In the approved research environment, run `python Backend/export_evaluation.py` against the artifact used by the active release. The command prints model settings and aggregate results for the held-out test set.
+
+When the aggregate report is approved for the hosted workspace, insert the exported JSON through the Supabase SQL editor as a database administrator. Replace the placeholder inside the dollar quotes with the full JSON output.
+
+```sql
+with evaluation(report) as (
+    values ($evaluation$PASTE_EXPORTED_JSON_HERE$evaluation$::jsonb)
+)
+insert into public.model_evaluations (model_version, report)
+select report ->> 'model_version', report from evaluation
+on conflict (model_version) do update set report = excluded.report;
+```
+
+Workspace members can read the report for the active release from **Model evaluation**. Keep the source dataset, holdout rows, and full report in the approved research environment.
+
 ## Deploy Cloudflare
 
 1. Prepare the approved model artifact as described in the Python backend setup. The Docker build context is `Backend/`. Use a Workers Paid account with a Docker-compatible toolchain for Containers.
@@ -32,7 +61,7 @@ The published API accepts authenticated `GET` and `POST` requests at `/functions
 
 ## Use Render Free for inference
 
-1. Create a Render **Free Web Service** using the Docker runtime and `Backend/` as the build context. The Docker build needs the approved `Backend/artifacts/model.joblib` in its build context or an approved prebuilt private image. The repository ignores the local artifact. Keep the training data and evaluation report out of the image.
+1. Create a Render **Free Web Service** using Docker, `Backend/` as the root directory, and `Dockerfile.render` as the Dockerfile. Upload the approved model to private storage. In Render, create a secret file named `fym_model_url` containing its signed HTTPS download URL and set `FYM_MODEL_SHA256` to the artifact's lowercase SHA-256 digest. The build verifies the download against that digest before it packages the model. Refresh the URL before an uncached rebuild if it has expired. Keep the training data and evaluation report out of the image.
 2. Set `FYM_INFERENCE_TOKEN` in Render and Supabase Edge Function secrets to the same randomly generated secret. Set Render's health check path to `/health`. The schema and assessment routes require the token.
 3. Set `FYM_INFERENCE_ORIGIN` in Supabase to the Render HTTPS origin. Configure `APP_ALLOWED_ORIGINS`, reviewer access, and the active model release using the same Supabase steps above.
 4. Deploy the updated `assess` function and frontend. In the signed-in dashboard, use **Wake Render** to start the service and load the screening schema. The dashboard reports the result of the last check and sends a request only when asked.

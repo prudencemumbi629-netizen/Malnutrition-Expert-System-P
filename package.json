@@ -1,0 +1,7 @@
+{
+  "name": "project-fym",
+  "private": true,
+  "scripts": {
+    "dev": "npm --prefix Frontend run dev --"
+  }
+}

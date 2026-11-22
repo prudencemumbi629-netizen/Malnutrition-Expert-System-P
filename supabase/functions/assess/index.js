@@ -5,6 +5,7 @@ const supabaseUrl = Deno.env.get('SUPABASE_URL')
 const inferenceOrigin = Deno.env.get('FYM_INFERENCE_ORIGIN')
 const inferenceToken = Deno.env.get('FYM_INFERENCE_TOKEN')
 const maxBytes = 16_384
+const maxBatchCases = 40
 
 async function readPayload(request) {
   if (!request.body) return null
@@ -31,7 +32,10 @@ Deno.serve(async (request) => {
   const headers = new Headers({ 'Cache-Control': 'no-store', Vary: 'Origin' })
   const json = (value, status = 200) => Response.json(value, { status, headers })
   if (origin && !allowedOrigins.has(origin)) return json({ error: 'Origin is not allowed.' }, 403)
-  if (origin) headers.set('Access-Control-Allow-Origin', origin)
+  if (origin) {
+    headers.set('Access-Control-Allow-Origin', origin)
+    headers.set('Access-Control-Expose-Headers', 'Retry-After')
+  }
   if (request.method === 'OPTIONS') {
     headers.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
     headers.set('Access-Control-Allow-Headers', 'authorization, apikey, content-type, x-client-info')
@@ -49,6 +53,7 @@ Deno.serve(async (request) => {
   }
 
   let payload
+  let batch = false
   if (request.method === 'POST') {
     if (request.headers.get('Content-Type')?.split(';')[0].trim() !== 'application/json') {
       return json({ error: 'Send an application/json request.' }, 415)
@@ -60,7 +65,13 @@ Deno.serve(async (request) => {
         ? json({ error: 'The request is too large.' }, 413)
         : json({ error: 'The request contains invalid JSON.' }, 400)
     }
-    if (!object(payload) || !object(payload.screeningInputs)) {
+    batch = object(payload) && Object.hasOwn(payload, 'cases')
+    if (batch && (!Array.isArray(payload.cases) || payload.cases.length < 1 ||
+        payload.cases.length > maxBatchCases || typeof payload.modelVersion !== 'string' ||
+        Object.keys(payload).some(key => key !== 'cases' && key !== 'modelVersion'))) {
+      return json({ error: 'Provide a model version and 1 to 40 cases.' }, 400)
+    }
+    if (!batch && (!object(payload) || !object(payload.screeningInputs))) {
       return json({ error: 'Provide screening inputs.' }, 400)
     }
   }
@@ -96,7 +107,10 @@ Deno.serve(async (request) => {
     const [release] = await releases.json()
     if (!release) return json({ error: 'No model release is active.' }, 503)
 
-    const path = request.method === 'GET' ? '/api/schema' : '/api/assess'
+    if (batch && payload.modelVersion !== release.model_version) {
+      return json({ error: 'The model version changed. Start a new batch.' }, 409)
+    }
+    const path = request.method === 'GET' ? '/api/schema' : batch ? '/api/batch-assess' : '/api/assess'
     const checking = request.method === 'GET'
     const signal = AbortSignal.timeout(checking ? 85_000 : 25_000)
     const upstream = new URL(path, inferenceOrigin)
@@ -121,6 +135,9 @@ Deno.serve(async (request) => {
     }
     if ([400, 422].includes(inference.status)) {
       return json({ error: 'Check the assessment inputs and try again.' }, inference.status)
+    }
+    if (batch && inference.status === 409) {
+      return json({ error: 'The model version changed. Start a new batch.' }, 409)
     }
     if (!inference.ok) throw new Error('Inference unavailable')
     const result = await inference.json()

@@ -43,7 +43,7 @@ export default {
       return new Response(null, { status: 401 })
     }
     const isSchema = pathname === '/api/schema' && request.method === 'GET'
-    const isAssessment = pathname === '/api/assess' && request.method === 'POST'
+    const isAssessment = ['/api/assess', '/api/batch-assess'].includes(pathname) && request.method === 'POST'
     if (!isSchema && !isAssessment) return new Response(null, { status: 404 })
 
     try {

@@ -27,7 +27,7 @@ function EmailSignIn() {
   }
 
   return (
-    <form className="panel form-body access-form" onSubmit={submit}>
+    <form className="sheet form-body access-form" onSubmit={submit}>
       <div className="field">
         <label htmlFor="access-email">Invited email address</label>
         <input id="access-email" type="email" autoComplete="email" required disabled={busy}
@@ -64,8 +64,8 @@ export default function Access({ children }) {
   return (
     <main className="workspace access-page">
       <div className="intro">
-        <p className="kicker">Project FYM</p>
-        <h1>Research workspace</h1>
+        <h1>Project FYM research workspace</h1>
+        <p>Sign in with the email address you were invited with. We’ll send you a link.</p>
       </div>
       {supabaseConfigurationError
         ? <p className="error" role="alert">{supabaseConfigurationError}</p>

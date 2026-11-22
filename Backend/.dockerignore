@@ -1,0 +1,7 @@
+**
+!Dockerfile
+!requirements.txt
+!schema.py
+!server.py
+!artifacts/
+!artifacts/model.joblib

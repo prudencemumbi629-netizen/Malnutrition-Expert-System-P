@@ -1,0 +1,9 @@
+project_id = "project-fym"
+
+[auth]
+enable_signup = false
+
+[functions.assess]
+# CORS preflight has no token. The handler validates the user via Supabase Auth.
+verify_jwt = false
+entrypoint = "./functions/assess/index.js"

@@ -3,6 +3,20 @@ export const MAX_BATCH_FILE_BYTES = 10 * 1024 * 1024
 
 const clinicalColumns = ['muac_mm', 'whz', 'oedema', 'danger_signs']
 const labels = ['Normal', 'MAM', 'SAM']
+const missingValues = new Set(['', 'na', 'n/a', 'null', 'missing', 'not recorded', '-'])
+const headerAliases = {
+  record_id: ['record id', 'case id'],
+  b19: ['age in months', 'age months'],
+  b4: ['sex', 'child sex'],
+  muac_mm: ['muac (mm)', 'mid-upper arm circumference (mm)'],
+  muac_cm: ['muac (cm)', 'mid-upper arm circumference (cm)'],
+  whz: ['weight-for-height z-score', 'weight for height z score'],
+  oedema: ['edema', 'bilateral pitting oedema', 'bilateral pitting edema'],
+  danger_signs: ['danger signs', 'emergency danger signs'],
+  nutrition_status: ['nutrition status', 'nutritional status', 'known outcome'],
+}
+
+const normalizeHeader = value => value.trim().toLowerCase().replace(/[\s_-]+/g, ' ')
 
 export function batchColumns(schema) {
   return ['record_id', ...schema.features.map(feature => feature.key), ...clinicalColumns, 'nutrition_status']
@@ -72,8 +86,9 @@ export function parseCsv(source) {
 
 function numberValue(value, label, integer = false) {
   const pattern = integer ? /^[+-]?\d+$/ : /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$/
-  const parsed = Number(value)
-  if (!pattern.test(value) || !Number.isFinite(parsed) || (integer && !Number.isSafeInteger(parsed))) {
+  const normalized = value.replace(/^−/, '-')
+  const parsed = Number(normalized)
+  if (!pattern.test(normalized) || !Number.isFinite(parsed) || (integer && !Number.isSafeInteger(parsed))) {
     throw new Error(`${label} must be ${integer ? 'an integer' : 'a number'}.`)
   }
   return parsed
@@ -93,10 +108,13 @@ function screeningInputs(get, schema) {
 
 function clinicalInputs(get, schema) {
   const clinical = {}
-  if (get('muac_mm')) {
-    const muac = numberValue(get('muac_mm'), 'MUAC in mm')
+  const mm = get('muac_mm')
+  const cm = get('muac_cm')
+  if (mm && cm) throw new Error('Provide MUAC in only one unit per row.')
+  if (mm || cm) {
+    const muac = numberValue(mm || cm, mm ? 'MUAC in mm' : 'MUAC in cm')
     if (muac <= 0) throw new Error('MUAC must be positive.')
-    clinical.muacCm = muac / 10
+    clinical.muacCm = mm ? muac / 10 : muac
   }
   if (get('whz')) clinical.whz = numberValue(get('whz'), 'WHZ')
   const oedema = get('oedema').toLowerCase()
@@ -121,14 +139,22 @@ function clinicalInputs(get, schema) {
 export function prepareBatch(text, schema) {
   const [header, ...records] = parseCsv(text)
   if (!header || !records.length) throw new Error('Add a header and at least one record.')
-  const columns = header.fields.map(field => field.trim())
-  const indexes = new Map(columns.map((name, index) => [name, index]))
-  if (indexes.size !== columns.length) throw new Error('The file contains duplicate column names.')
-  const recognized = new Set(batchColumns(schema))
-  if (columns.some(column => !recognized.has(column))) {
-    throw new Error('The file contains an unrecognized column. Use the CSV template for supported columns.')
+  const aliases = new Map()
+  for (const key of [...batchColumns(schema), 'muac_cm']) {
+    for (const name of [key, ...(headerAliases[key] ?? [])]) aliases.set(normalizeHeader(name), key)
   }
-  const required = ['record_id', ...schema.features.filter(feature => feature.required).map(feature => feature.key)]
+  for (const feature of schema.features) {
+    const name = normalizeHeader(feature.label)
+    if (name && !aliases.has(name)) aliases.set(name, feature.key)
+  }
+  const indexes = new Map()
+  header.fields.forEach((name, index) => {
+    const key = aliases.get(normalizeHeader(name))
+    if (!key) return
+    if (indexes.has(key)) throw new Error(`Multiple columns map to ${key}. Keep one column for this field.`)
+    indexes.set(key, index)
+  })
+  const required = schema.features.filter(feature => feature.required).map(feature => feature.key)
   const missing = required.filter(name => !indexes.has(name))
   if (missing.length) throw new Error(`Missing required columns: ${missing.join(', ')}.`)
 
@@ -140,14 +166,19 @@ export function prepareBatch(text, schema) {
   }
 
   return records.map(({ line, fields }) => {
-    const get = name => fields[indexes.get(name)]?.trim() ?? ''
-    const recordId = get('record_id').slice(0, 128)
-    const row = { line, recordId, actual: get('nutrition_status') }
+    const get = name => {
+      const value = fields[indexes.get(name)]?.trim() ?? ''
+      return missingValues.has(value.toLowerCase()) ? '' : value
+    }
+    const suppliedId = fields[idIndex]?.trim() ?? ''
+    const recordId = idIndex === undefined ? `row-${line}` : suppliedId.slice(0, 128)
+    const outcome = get('nutrition_status')
+    const row = { line, recordId, actual: labels.find(label => label.toLowerCase() === outcome.toLowerCase()) ?? '' }
     try {
-      if (fields.length !== columns.length) throw new Error('The row has the wrong number of columns.')
-      if (!recordId || get('record_id').length > 128) throw new Error('Provide a record ID of 1–128 characters.')
+      if (fields.length !== header.fields.length) throw new Error('The row has the wrong number of columns.')
+      if (!recordId || suppliedId.length > 128) throw new Error('Provide a record ID of 1–128 characters.')
       if (idCounts.get(recordId) > 1) throw new Error('Record ID must be unique in the file.')
-      if (row.actual && !labels.includes(row.actual)) throw new Error('Nutrition status must be Normal, MAM, or SAM.')
+      if (outcome && !row.actual) throw new Error('Nutrition status must be Normal, MAM, or SAM.')
       row.payload = { screeningInputs: screeningInputs(get, schema), clinicalInputs: clinicalInputs(get, schema) }
     } catch (error) {
       row.error = error.message

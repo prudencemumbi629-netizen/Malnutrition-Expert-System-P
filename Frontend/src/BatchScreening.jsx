@@ -307,12 +307,12 @@ export default function BatchScreening({ schema, checking, schemaError, onCheck,
             <label htmlFor="batch-file">CSV file</label>
             <input id="batch-file" type="file" accept=".csv,text/csv" required disabled={inProgress}
               onChange={event => setFile(event.target.files[0] ?? null)} />
-            <p>Up to {counts.format(MAX_BATCH_ROWS)} records and 10 MB. Use <code>record_id</code>, <code>b19</code> for age in months, and <code>b4</code> for sex. Other model inputs and clinical findings are optional.</p>
+            <p>Up to {counts.format(MAX_BATCH_ROWS)} records and 10 MB. Include age in months and sex. If there is no record ID column, the app uses CSV line numbers.</p>
           </div>
           {ready && (
             <details className="batch-format">
               <summary>CSV field instructions</summary>
-              <p>Use model field codes as column names and numeric survey codes or the displayed labels as values. Use millimetres for <code>muac_mm</code>, a number for <code>whz</code>, and yes or no for <code>oedema</code>.</p>
+              <p>Use model field codes or the displayed field names as column headings. The app ignores extra columns and treats markers such as N/A and Not recorded as blank. Use <code>muac_mm</code> for millimetres or <code>muac_cm</code> for centimetres, a number for <code>whz</code>, and yes or no for <code>oedema</code>.</p>
               <p>In <code>danger_signs</code>, use <code>none</code> when none were reported, or separate these codes with semicolons: {schema.dangerSigns.map(sign => sign.key).join(', ')}. Leave the field blank when unrecorded.</p>
               <p>For optional known-outcome evaluation, use <code>Normal</code>, <code>MAM</code>, or <code>SAM</code> in <code>nutrition_status</code>.</p>
             </details>
@@ -328,7 +328,7 @@ export default function BatchScreening({ schema, checking, schemaError, onCheck,
                 onClick={() => { if (job.current && !controller.current) runBatch(job.current) }}>Resume batch</button>
             )}
           </div>
-          {status === 'preparing' && <p role="status">Checking CSV rows…</p>}
+          {status === 'preparing' && <p role="status">Cleaning and checking CSV rows…</p>}
           {progress.total > 0 && (
             <div className="batch-progress">
               <label htmlFor="batch-progress">Processed {counts.format(progress.done)} of {counts.format(progress.total)} records</label>
